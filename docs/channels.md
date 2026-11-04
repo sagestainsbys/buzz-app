@@ -514,7 +514,8 @@ focus, focus moves to the retained message history. Nonempty unsent text, includ
 an in-progress message edit, is offered through a host-owned **Copy text** toast;
 empty composers and focus elsewhere do not trigger it. Copy failure retains a retry
 action, and recovery stays available until used or dismissed. Unarchiving restores the
-composer and its saved text draft. A remote unarchive in the same open conversation
+composer and its saved text draft, and reopens an unsaved message edit. A remote
+unarchive in the same open conversation
 preserves the reader's focus instead of autofocus moving it into the restored composer.
 When refreshed Settings actions remount, focus
 returns to its persistent Settings-tab close control instead of an unrelated sidebar row;

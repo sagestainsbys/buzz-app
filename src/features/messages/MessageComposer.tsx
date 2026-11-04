@@ -535,6 +535,9 @@ function Composer({
     (threadRootId
       ? `draft:${channelId}:thread:${threadRootId}`
       : `draft:${channelId}`);
+  // An unsaved message edit is kept beside the draft, never in it, so Drafts
+  // does not list it.
+  const editKey = submission ? undefined : draftKey.replace(/^draft:/, "edit:");
   const [admitting, setAdmitting] = useState(false);
   const admission = useRef(false);
   const live = useRef(true);
@@ -1048,7 +1051,15 @@ function Composer({
     if (JSON.stringify(next) === JSON.stringify(valueRef.current)) return false;
     valueRef.current = next;
     updateDraft(next);
+    if (save && editing.target && editKey)
+      writeView(scope, editKey, {
+        id: editing.target.id,
+        base: editing.base(),
+        draft: next,
+      });
     if (save && !editing.target) {
+      // A draft in use is not replaced by a kept edit until Edit is chosen.
+      setResuming(undefined);
       if (submission) {
         const saved = writeView(scope, draftKey, next);
         unsavedDraft.current = !saved;
@@ -1086,6 +1097,7 @@ function Composer({
   const editing = useMessageEdit(session, () => {
     const saved = beforeEdit.current;
     if (!saved) return;
+    if (editKey) writeView(scope, editKey, null);
     valueRef.current = saved.value;
     updateDraft(saved.value);
     saved.restore();
@@ -1516,7 +1528,19 @@ function Composer({
     caret.current = undefined;
   });
   const requestDeletion = useMessageDeletion();
-  const startEdit = useEffectEvent((row: ChannelMessage) => {
+  const keptEdit = () => {
+    const kept = editKey
+      ? readView<Record<string, unknown> | null>(scope, editKey, null)
+      : null;
+    return typeof kept?.id === "string" && typeof kept.base === "string"
+      ? { id: kept.id, base: kept.base, draft: mentionDraft(kept.draft) }
+      : undefined;
+  };
+  /** Opens `row` in the editor, with its kept unsaved edit if there is one.
+   * A quiet start, resuming that edit unasked, neither reports a message that
+   * can no longer be edited nor moves focus. False: this composer cannot edit
+   * now. */
+  const startEdit = useEffectEvent((row: ChannelMessage, quiet = false) => {
     if (
       !permitted.current ||
       editingDisabled ||
@@ -1524,37 +1548,75 @@ function Composer({
       submission ||
       !input.current
     )
-      return;
+      return false;
     const current = editableRows().find((item) => item.id === row.id);
     if (!current || !lastEditableMessage(session, [current])) {
-      setError("This message is no longer available to edit.");
-      return;
+      if (!quiet) setError("This message is no longer available to edit.");
+      return true;
     }
     if (editing.target) {
+      if (quiet) return true;
       setError("Finish or cancel your current edit first.");
       input.current.focus();
-      return;
+      return true;
     }
+    const kept = keptEdit();
+    const resumed = kept?.id === current.id ? kept : undefined;
     completion.invalidate();
     beforeEdit.current = {
       value: valueRef.current,
       restore: input.current.checkpoint(),
     };
+    const body = editing.start(
+      current,
+      (body) =>
+        composerMarkdown(stageChatCards(mentionDraft(body), channels())),
+      resumed?.base,
+    );
     const next = stageChatCards(
-      mentionDraft(
-        editing.start(current, (body) =>
-          composerMarkdown(stageChatCards(mentionDraft(body), channels())),
-        ),
-      ),
+      resumed?.draft ?? mentionDraft(body),
       channels(),
     );
     valueRef.current = next;
     updateDraft(next);
     input.current.reset(next);
     setLinkEdit(null);
-    caret.current = next.text.length;
+    if (!quiet || document.activeElement === input.current)
+      caret.current = next.text.length;
     setError(undefined);
+    return true;
   });
+  // An edit kept from an earlier mount reopens once its message loads. Rows
+  // that load without it, a change to the new-message draft, or an error the
+  // composer reports for it, as for a recovered send, end the wait.
+  // It starts in a later commit than the mount: StrictMode's replayed mount
+  // effects rebuild the editor from the draft and would drop its reset.
+  const [resuming, setResuming] = useState<string>();
+  const resume = useEffectEvent(() => setResuming(keptEdit()?.id));
+  useEffect(() => resume(), []);
+  const subscribeResume = useCallback(
+    (listener: () => void) =>
+      resuming
+        ? (session.channels.subscribeWindow?.(channelId, listener) ??
+          noSubscription())
+        : noSubscription(),
+    [resuming, session.channels, channelId],
+  );
+  const resumeRow = useSyncExternalStore(subscribeResume, () => {
+    if (!resuming) return;
+    const row = editableRows().find((item) => item.id === resuming);
+    // A thread has loaded once it supplies the viewer's latest message there.
+    const loaded = threadRootId
+      ? !!threadSeed
+      : session.channels.window?.(channelId).status === "ready";
+    return row ?? (loaded ? "missing" : undefined);
+  });
+  useEffect(() => {
+    if (!resumeRow) return;
+    if (resumeRow === "missing" || error) setResuming(undefined);
+    else if (active && !editingDisabled && startEdit(resumeRow, true))
+      setResuming(undefined);
+  }, [resumeRow, error, active, editingDisabled]);
   useEffect(() => {
     if (!editScope) return;
     const start = (row: ChannelMessage) => startEdit(row);
@@ -2374,10 +2436,12 @@ function Composer({
         }
         return;
       }
-      editing.save(
+      const submitted = editing.save(
         composerMarkdown(valueRef.current),
         editableRows().find((row) => row.id === editing.target?.id),
       );
+      // The outbox keeps a submitted edit, a failed one included.
+      if (submitted && editKey) writeView(scope, editKey, null);
       return;
     }
     if (

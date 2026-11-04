@@ -81,7 +81,12 @@ import type {
   ChannelSummary,
   Profile,
 } from "../relay/contracts";
-import { readView, viewRevision, writeView } from "../../shared/view-state";
+import {
+  listDraftViews,
+  readView,
+  viewRevision,
+  writeView,
+} from "../../shared/view-state";
 import { followupDraft } from "./mention-draft";
 import { emojiMatches, type CustomEmoji } from "../relay/emoji";
 import { CustomEmoji as CustomEmojiImage } from "../../bundled/emoji/CustomEmoji";
@@ -897,6 +902,12 @@ it.each(["draft", "edit"])(
       await screen.findByText("Text copied", { exact: true }),
     ).toBeVisible();
     h.restore();
+    if (mode === "edit") {
+      // The unsaved edit reopens; cancelling it returns the saved draft.
+      expect(h.input()).toHaveAccessibleName("Edit message");
+      expect(h.input()).toHaveValue(text);
+      fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+    }
     expect(h.input()).toHaveValue("Saved draft");
   },
 );
@@ -8597,6 +8608,122 @@ it("edits in the same composer, cancels without persisting edit text, and restor
   fireEvent.keyDown(input, { key: "z", ctrlKey: true });
   expect(input).toHaveValue("Unsent draft");
   expect(h.messages.edit).not.toHaveBeenCalled();
+});
+
+/** Opens an edit of the viewer's message, rewrites it without saving, and
+ * leaves the channel. */
+function leaveUnsavedEdit() {
+  const h = mount({}, undefined, first.pubkey);
+  h.setRows([editableMessage()]);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten message");
+  h.retarget({ channelId: "other" });
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+  return h;
+}
+
+it("keeps an unsaved edit across a channel switch, apart from the draft, and reopens it without taking focus", () => {
+  const h = leaveUnsavedEdit();
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("Rewritten message");
+  expect(screen.getByText("Editing message")).toBeVisible();
+  expect(h.input()).not.toHaveFocus();
+  expect(viewRevision("scope", "draft:channel")).toBeNull();
+  expect(listDraftViews("scope", () => true).entries).toEqual([]);
+  fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+  expect(h.input()).toHaveValue("");
+  h.retarget({ channelId: "other" });
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+  expect(h.messages.edit).not.toHaveBeenCalled();
+});
+
+it("reopens a kept edit once its message loads after the composer mounts", () => {
+  const h = leaveUnsavedEdit();
+  // As after a reload, history loads after the channel's composer mounts.
+  h.setRows([]);
+  h.setHistory("loading");
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+  h.setRows([editableMessage()]);
+  h.setHistory("ready");
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("Rewritten message");
+});
+
+it.each(["loads without its message", "has a new draft first"])(
+  "stops waiting to reopen a kept edit when the channel %s, until Edit is chosen",
+  (cause) => {
+    const h = leaveUnsavedEdit();
+    h.setRows([]);
+    if (cause === "has a new draft first") h.setHistory("loading");
+    h.retarget({ channelId: "channel" });
+    if (cause === "has a new draft first") {
+      h.fill("New message");
+      h.fill("");
+    }
+    h.setRows([editableMessage()]);
+    h.setHistory("ready");
+    expect(h.input()).not.toHaveAccessibleName("Edit message");
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+    expect(h.input()).toHaveAccessibleName("Edit message");
+    expect(h.input()).toHaveValue("Rewritten message");
+  },
+);
+
+it("reopens a kept edit of a message changed elsewhere but refuses to save over the change", () => {
+  const h = leaveUnsavedEdit();
+  h.setRows([editableMessage({ content: "Changed elsewhere" })]);
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).toHaveValue("Rewritten message");
+  h.submit();
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "This message changed while you were editing. Copy your changes, then cancel and reopen it.",
+  );
+  expect(h.input()).toHaveValue("Rewritten message");
+  expect(h.messages.edit).not.toHaveBeenCalled();
+});
+
+it("forgets a kept edit once it is saved, leaving a failed save to the outbox", () => {
+  const h = leaveUnsavedEdit();
+  h.retarget({ channelId: "channel" });
+  h.submit();
+  expect(h.messages.edit).toHaveBeenCalledExactlyOnceWith(
+    "c".repeat(64),
+    "Rewritten message",
+    "c".repeat(64),
+  );
+  h.setDelivery("failed");
+  expect(h.input()).toHaveValue("Rewritten message");
+  h.retarget({ channelId: "other" });
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("");
+});
+
+it("keeps a thread's unsaved edit under the thread and reopens it when its replies load", () => {
+  const root = "a".repeat(64);
+  const reply = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const thread = { threadRootId: root, editMessages: [reply] };
+  const h = mount({ ...thread, threadSeed: reply }, undefined, first.pubkey);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten reply");
+  h.unmount();
+  expect(readView("scope", `edit:channel:thread:${root}`, null)).toMatchObject({
+    id: reply.id,
+    base: "Original message",
+    draft: { text: "Rewritten reply" },
+  });
+  expect(viewRevision("scope", "edit:channel")).toBeNull();
+  expect(viewRevision("scope", `draft:channel:thread:${root}`)).toBeNull();
+  // The thread reopens before its replies load.
+  const again = mount({ ...thread, editMessages: [] }, undefined, first.pubkey);
+  expect(again.input()).toHaveAccessibleName("Reply to thread");
+  again.retarget({ editMessages: [reply], threadSeed: reply });
+  expect(again.input()).toHaveAccessibleName("Edit message");
+  expect(again.input()).toHaveValue("Rewritten reply");
 });
 
 it("selects the newest message on Up when the scope has a message list, instead of editing", () => {
