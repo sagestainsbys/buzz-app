@@ -694,7 +694,12 @@ composer has the edit open keeps it closed until Edit is chosen. It does not reo
 review's composer, or while another composer in the window has it open; choosing
 Edit there resumes it and returns the other composer to its draft. While another
 composer has a different message's edit open there, choosing Edit asks to finish
-or cancel that edit first. Pending edits lock the editor until
+or cancel that edit first. Choosing Edit on another message opens the kept edit in
+its place with the same request; if the kept edit's message is not among that
+composer's rows, as when it was deleted, choosing Edit again discards it. A kept
+edit that cannot be written is cleared and reported, so nothing reopens older text;
+its text stays in that composer, which does not hand it over until a retry saves
+it. Pending edits lock the editor until
 delivery; failed or unknown outcomes offer retry of the same outbox event.
 Missing or concurrently changed targets are rejected without losing the user's
 input.

@@ -8961,6 +8961,184 @@ it("refuses to edit another message while another composer has an edit open on i
   expect(h.input()).toHaveValue("Rewritten newer");
 });
 
+/** Fills storage for one view key: a write that grows it fails, and clearing
+ * it does not. */
+function fillViewStorage(key: string) {
+  const setItem = Storage.prototype.setItem;
+  return vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+    this: Storage,
+    name,
+    value,
+  ) {
+    if (name === `buzz-view.v1:${JSON.stringify(["scope", key])}`)
+      if (value !== "null") throw Error("full");
+    setItem.call(this, name, value);
+  });
+}
+
+it("says when an edit cannot be kept on this device, and a return does not reopen its older text", () => {
+  const h = mount({}, undefined, first.pubkey);
+  h.setRows([editableMessage()]);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten message");
+  const full = fillViewStorage("edit:channel");
+  try {
+    h.fill("Rewritten message, then more");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Could not save this edit on this device. Your changes are kept here.",
+    );
+    expect(h.input()).toHaveValue("Rewritten message, then more");
+    expect(readView("scope", "edit:channel", null)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry edit save" }));
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    h.retarget({ channelId: "other" });
+    h.retarget({ channelId: "channel" });
+    expect(h.input()).not.toHaveAccessibleName("Edit message");
+    expect(h.input()).toHaveValue("");
+    // The notice ends with the edit, cancelled or saved.
+    fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+    h.fill("Cancelled rewrite");
+    fireEvent.keyDown(h.input(), { key: "Escape", keyCode: 27 });
+    fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+    expect(screen.queryByRole("alert")).toBeNull();
+    h.fill("Saved rewrite");
+    h.submit();
+    expect(h.messages.edit).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("alert")).toBeNull();
+  } finally {
+    full.mockRestore();
+  }
+});
+
+it("keeps an edit that cannot be kept on this device from moving to another composer until a retry saves it", () => {
+  const root = "a".repeat(64);
+  const reply = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const thread = {
+    threadRootId: root,
+    editMessages: [reply],
+    threadSeed: reply,
+  };
+  const h = mount(thread, undefined, first.pubkey);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten reply");
+  const full = fillViewStorage(`edit:channel:thread:${root}`);
+  const review = mount(
+    { ...thread, resumeEdit: false },
+    undefined,
+    first.pubkey,
+  );
+  try {
+    h.fill("Rewritten reply, then more");
+    fireEvent.keyDown(review.input(), { key: "ArrowUp" });
+    expect(review.input()).toHaveAccessibleName("Reply to thread");
+    expect(within(review.container).getByRole("alert")).toHaveTextContent(
+      "Finish or cancel your current edit first.",
+    );
+    expect(h.input()).toHaveValue("Rewritten reply, then more");
+  } finally {
+    full.mockRestore();
+  }
+  fireEvent.click(
+    within(h.container).getByRole("button", { name: "Retry edit save" }),
+  );
+  expect(within(h.container).queryByRole("alert")).toBeNull();
+  fireEvent.keyDown(review.input(), { key: "ArrowUp" });
+  expect(review.input()).toHaveValue("Rewritten reply, then more");
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+});
+
+/** Keeps an unsaved rewrite of an older thread reply, then mounts a media
+ * review's composer, which does not reopen it by itself, on that thread. */
+function reviewAfterKeptRewrite(shown: "both" | "newer") {
+  const root = "a".repeat(64);
+  const older = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const newer = editableMessage({
+    id: "d".repeat(64),
+    threadRootId: root,
+    createdAt: 11,
+    content: "Newer message",
+  });
+  const h = mount(
+    { threadRootId: root, editMessages: [older], threadSeed: older },
+    undefined,
+    first.pubkey,
+  );
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten older");
+  h.unmount();
+  const review = mount(
+    {
+      threadRootId: root,
+      editMessages: shown === "both" ? [older, newer] : [newer],
+      threadSeed: newer,
+      resumeEdit: false,
+    },
+    undefined,
+    first.pubkey,
+  );
+  expect(review.input()).toHaveAccessibleName("Reply to thread");
+  return { review, older, key: `edit:channel:thread:${root}` };
+}
+
+it("opens a kept rewrite of another message in place of the one chosen until it ends", () => {
+  const { review } = reviewAfterKeptRewrite("both");
+  fireEvent.keyDown(review.input(), { key: "ArrowUp" });
+  expect(review.input()).toHaveAccessibleName("Edit message");
+  expect(review.input()).toHaveValue("Rewritten older");
+  expect(review.input()).toHaveFocus();
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Finish or cancel your current edit first.",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Cancel edit" }));
+  fireEvent.keyDown(review.input(), { key: "ArrowUp" });
+  expect(review.input()).toHaveValue("Newer message");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+it("discards a kept rewrite whose message is not here to open only when Edit is chosen again", () => {
+  const { review, older, key } = reviewAfterKeptRewrite("newer");
+  fireEvent.keyDown(review.input(), { key: "ArrowUp" });
+  expect(review.input()).toHaveAccessibleName("Reply to thread");
+  expect(screen.getByRole("alert")).toHaveTextContent(
+    "Your unsaved edit of another message can't be opened here. Choose Edit again to discard it.",
+  );
+  expect(readView("scope", key, null)).toMatchObject({
+    id: older.id,
+    draft: { text: "Rewritten older" },
+  });
+  fireEvent.keyDown(review.input(), { key: "ArrowUp" });
+  expect(review.input()).toHaveValue("Newer message");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(readView("scope", key, null)).toBeNull();
+});
+
+it("does not open a message by itself once its kept edit ends while the composer waits", () => {
+  const root = "a".repeat(64);
+  const reply = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const thread = {
+    threadRootId: root,
+    editMessages: [reply],
+    threadSeed: reply,
+  };
+  const h = mount(thread, undefined, first.pubkey);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten reply");
+  h.unmount();
+  const waiting = mount(
+    { threadRootId: root, editMessages: [] },
+    undefined,
+    first.pubkey,
+  );
+  const other = mount(thread, undefined, first.pubkey);
+  expect(other.input()).toHaveValue("Rewritten reply");
+  fireEvent.click(
+    within(other.container).getByRole("button", { name: "Cancel edit" }),
+  );
+  waiting.retarget(thread);
+  expect(waiting.input()).toHaveAccessibleName("Reply to thread");
+  expect(waiting.input()).toHaveValue("");
+});
+
 it("selects the newest message on Up when the scope has a message list, instead of editing", () => {
   const base = mount({}, undefined, first.pubkey);
   base.unmount();

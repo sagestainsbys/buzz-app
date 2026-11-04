@@ -221,7 +221,10 @@ that agent in Buzz; they do not notify the external app through this connection.
   or video review's comments do not reopen it. If it does not reopen,
   choose **Edit message** on that message again. That also moves the edit out of
   another composer that has it open, such as the thread under a review. Save or
-  Cancel ends it.
+  Cancel ends it. Choosing **Edit message** on another message there opens the
+  unsaved edit first; if its message is not shown there, choosing Edit again
+  discards it. If Buzz cannot save your changes on this device, the composer
+  says so, and they stay only in that composer until a retry saves them.
   Unsaved edits are not listed in Drafts.
 - **Emoji suggestions** appear when you type `:` and an emoji name. If a name
   is shortened with an ellipsis, hover over it or use the arrow keys to select
