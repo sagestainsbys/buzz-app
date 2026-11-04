@@ -837,7 +837,8 @@ html[data-keyboard-navigation]
 }
 .settingsDetailAction[aria-busy="true"] .settingsDetailIcon,
 .settingsDetailAction:hover .settingsDetailIcon,
-.settingsDetailAction:focus-visible .settingsDetailIcon {
+.settingsDetailAction:focus-visible .settingsDetailIcon,
+.settingsDetails > div:hover .settingsLabelAction .settingsDetailIcon {
   opacity: 1;
   transform: translateX(0);
 }
@@ -853,7 +854,8 @@ html[data-keyboard-navigation]
   .settingsTitleAction:focus-visible .settingsTitlePencil,
   .settingsDetailIcon,
   .settingsDetailAction:hover .settingsDetailIcon,
-  .settingsDetailAction:focus-visible .settingsDetailIcon {
+  .settingsDetailAction:focus-visible .settingsDetailIcon,
+  .settingsDetails > div:hover .settingsLabelAction .settingsDetailIcon {
     transform: none;
     transition: none;
   }
@@ -867,9 +869,12 @@ html[data-keyboard-navigation]
   inset: 0;
   border-radius: inherit;
 }
-/* The value holds its own links, so only the label opens the editor. */
+/* The value holds its own links, so only the label opens the editor. Its
+   24px target overhangs the label's line box without moving the row. */
 .settingsLabelAction {
   width: fit-content;
+  min-height: var(--space-6);
+  margin-block: calc((1lh - var(--space-6)) / 2);
 }
 .settingsDetails > div + div {
   border-top: 1px solid var(--border-standard);
@@ -1096,9 +1101,10 @@ html[data-keyboard-navigation]
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* The dd already spaces the value from its label. */
+/* The dd spaces the value from its label and sets the values' line height. */
 .settingsDescription > :first-child {
   margin-top: 0;
+  line-height: inherit;
 }
 .detailsEditor {
   display: grid;

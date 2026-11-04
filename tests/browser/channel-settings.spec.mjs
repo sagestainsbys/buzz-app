@@ -184,6 +184,8 @@ test.describe("description links", () => {
     });
     // Permissions have loaded, so a click that reached Edit would open it.
     await expect(edit).toBeEnabled();
+    // The label is now the only pointer target for editing.
+    expect((await edit.boundingBox()).height).toBeGreaterThanOrEqual(24);
     const opened = page.waitForEvent("popup");
     await panel.getByRole("link", { name: runbook, exact: true }).click();
     const external = await opened;

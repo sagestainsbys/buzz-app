@@ -492,6 +492,8 @@ it.each([
     expect(open).toHaveBeenLastCalledWith("buzz://channel/ops");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     if (edit) {
+      // The rendered value follows; its Markdown source would read twice.
+      expect(edit).not.toHaveAccessibleDescription();
       await user.click(edit);
       await waitFor(() =>
         expect(

@@ -57,7 +57,6 @@ export function ChannelSettingsPanel({
   onOpenLink?(url: string): boolean;
 }) {
   const tabbed = !!usePanelTabHost();
-  const directory = useReferenceDirectory(session);
   const header = useRef<HTMLDivElement>(null);
   const panelId = useId();
   useEffect(() => {
@@ -77,7 +76,12 @@ export function ChannelSettingsPanel({
       aria-label="Channel settings"
       aria-busy={loading}
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        // Portalled menus and cards bubble here through React but own their Escape.
+        if (
+          event.key === "Escape" &&
+          !event.defaultPrevented &&
+          event.currentTarget.contains(event.target as Node)
+        ) {
           event.stopPropagation();
           close();
         }
@@ -170,23 +174,11 @@ export function ChannelSettingsPanel({
                         channel.description &&
                         session &&
                         onOpenLink && (
-                          <MessageMarkdown
-                            row={{
-                              id: "channel-description",
-                              authorId: "",
-                              createdAt: 0,
-                              channelId: channel.id,
-                              content: channel.description,
-                              mentions: [],
-                              participants: [],
-                              attachments: [],
-                              reactions: [],
-                              replyCount: 0,
-                            }}
-                            directory={directory}
+                          <ChannelDescription
+                            channelId={channel.id}
+                            content={channel.description}
                             session={session}
                             scope={scope}
-                            media={session.media}
                             onOpenLink={onOpenLink}
                             canOpenLink={canOpenLink}
                           />
@@ -248,6 +240,48 @@ export function ChannelSettingsPanel({
   );
 }
 
+/** Only a linked description reads the reference directory, so its snapshots
+ * re-render this value rather than the whole panel. */
+function ChannelDescription({
+  channelId,
+  content,
+  session,
+  scope,
+  onOpenLink,
+  canOpenLink,
+}: {
+  channelId: string;
+  content: string;
+  session: RelaySession;
+  scope: string;
+  onOpenLink(url: string): boolean;
+  canOpenLink?: ((target: string) => boolean) | undefined;
+}) {
+  const directory = useReferenceDirectory(session);
+  return (
+    <MessageMarkdown
+      row={{
+        id: "channel-description",
+        authorId: "",
+        createdAt: 0,
+        channelId,
+        content,
+        mentions: [],
+        participants: [],
+        attachments: [],
+        reactions: [],
+        replyCount: 0,
+      }}
+      directory={directory}
+      session={session}
+      scope={scope}
+      media={session.media}
+      onOpenLink={onOpenLink}
+      canOpenLink={canOpenLink}
+    />
+  );
+}
+
 /** A native button's hit area covers the row without nesting controls or losing list semantics. */
 function SettingsDetail({
   label,
@@ -266,7 +300,7 @@ function SettingsDetail({
   renderAction = (action) => action,
 }: {
   label: string;
-  /** Plain value, also the action's description. */
+  /** Plain value; also describes a whole-row action. */
   value: string;
   /** Rendered in place of `value` when present. */
   content?: ReactNode;
@@ -300,7 +334,7 @@ function SettingsDetail({
                     ? `${actionLabel} ${label.toLowerCase()}`
                     : `View ${label.toLowerCase()}`
                 }
-                aria-description={value}
+                aria-description={labelOnly ? undefined : value}
                 aria-haspopup={hasPopup}
                 disabled={loading}
                 aria-busy={loading || undefined}

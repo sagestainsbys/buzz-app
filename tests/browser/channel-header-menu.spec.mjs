@@ -193,7 +193,14 @@ test("header actions use the full-size menu and retain pane/dialog focus owners"
     const background = () =>
       row.evaluate((node) => getComputedStyle(node).backgroundColor);
     if (wholeRow) await expect.poll(background).not.toBe(resting);
-    else expect(await background()).toBe(resting);
+    else {
+      expect(await background()).toBe(resting);
+      // Row hover still reveals the pencil; only the label takes the click.
+      await expect(action.locator("svg").locator("..")).toHaveCSS(
+        "opacity",
+        "1",
+      );
+    }
     await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(action).toHaveCSS("padding", "0px");
     if (label === "View members") {

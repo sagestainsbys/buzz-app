@@ -1,7 +1,15 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createPortal } from "react-dom";
 import { afterEach, expect, it, vi } from "vitest";
 import { ChannelSettingsPanel } from "./ChannelSettingsPanel";
 
@@ -68,6 +76,27 @@ it("closes with Escape or its close button without swallowing other keys", async
   await user.click(screen.getByRole("tab", { name: "Channel settings" }));
   await user.keyboard("{Delete}");
   expect(close).toHaveBeenCalledTimes(3);
+});
+
+it("leaves Escape to descendants that handle it and to portalled layers", () => {
+  const close = vi.fn();
+  render(
+    <ChannelSettingsPanel
+      scope="community:viewer"
+      channel={undefined}
+      close={close}
+    >
+      <button type="button" onKeyDown={(event) => event.preventDefault()}>
+        Handled
+      </button>
+      {createPortal(<button type="button">Portalled</button>, document.body)}
+    </ChannelSettingsPanel>,
+  );
+  fireEvent.keyDown(screen.getByText("Handled"), { key: "Escape" });
+  fireEvent.keyDown(screen.getByText("Portalled"), { key: "Escape" });
+  expect(close).not.toHaveBeenCalled();
+  fireEvent.keyDown(screen.getByText("Diagnostics"), { key: "Escape" });
+  expect(close).toHaveBeenCalledOnce();
 });
 
 it("does not invent unknown metadata and still exposes diagnostics without a channel", async () => {

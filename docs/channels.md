@@ -627,16 +627,16 @@ left-to-right fade on hover or keyboard focus (always visible on touch, no anima
 for reduced motion). The pencil follows the final text line;
 balanced side padding keeps the text centered and lets long titles wrap without clipping it.
 Description has a small pencil after its label,
-revealed with a short left-to-right fade on label hover or keyboard focus
+revealed with a short left-to-right fade on row hover or keyboard focus
 (always visible on touch, no animation for reduced motion) without shifting layout;
-the label opens the shared Dialog with one Name/Description/Duration draft.
+only the label, a 24px target, opens the shared Dialog with one Name/Description/Duration draft.
 Every viewer sees the description rendered as message Markdown: its URLs, Buzz links
 and `#channel` references open their targets, so its value is not part of the Edit target.
 Opening Description focuses its textarea; the title focuses Name.
 Only authorized editors get the edit actions; other viewers see the same linked description.
 Members has a right chevron and opens the existing member list. Channel ID has a
 small inline copy icon revealed on whole-row hover or keyboard focus (always visible
-on touch); selecting its row copies the exact ID. Only a successful copy opens a confirmation tooltip, without
+on touch, no animation for reduced motion); selecting its row copies the exact ID. Only a successful copy opens a confirmation tooltip, without
 growing the row; hovering or focusing does not open a hint or replay old feedback.
 Clipboard failure shows an inline error and leaves the row available to retry. The redundant standalone
 Edit details button, header-menu Edit details entry and informational Channel type
