@@ -186,6 +186,22 @@ test.describe("description links", () => {
     await expect(edit).toBeEnabled();
     // The label is now the only pointer target for editing.
     expect((await edit.boundingBox()).height).toBeGreaterThanOrEqual(24);
+    // Its target overhangs the label's line box, so the value sits where
+    // Members' does. The dt can't show this: the margins collapse through it.
+    // Measure inside each row's top border, which only later rows have.
+    const valueOffset = (name) =>
+      panel.getByRole("button", { name, exact: true }).evaluate((button) => {
+        const row = button.closest("dt").parentElement;
+        return (
+          row.querySelector("dd").getBoundingClientRect().top -
+          row.getBoundingClientRect().top -
+          row.clientTop
+        );
+      });
+    expect(await valueOffset("Edit description")).toBeCloseTo(
+      await valueOffset("View members"),
+      0,
+    );
     const opened = page.waitForEvent("popup");
     await panel.getByRole("link", { name: runbook, exact: true }).click();
     const external = await opened;

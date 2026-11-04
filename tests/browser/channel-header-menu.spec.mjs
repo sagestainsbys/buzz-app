@@ -188,18 +188,28 @@ test("header actions use the full-size menu and retain pane/dialog focus owners"
       (node) => getComputedStyle(node).backgroundColor,
     );
     const box = await row.boundingBox();
-    // Hit the value/padding below the text control, not just its label.
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 8);
     const background = () =>
       row.evaluate((node) => getComputedStyle(node).backgroundColor);
-    if (wholeRow) await expect.poll(background).not.toBe(resting);
-    else {
-      expect(await background()).toBe(resting);
-      // Row hover still reveals the pencil; only the label takes the click.
+    if (wholeRow) {
+      // Hit the value/padding below the text control, not just its label.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height - 8);
+      await expect.poll(background).not.toBe(resting);
+    } else {
+      // Hover the value text. The revealed pencil proves the row is hovered,
+      // but only the label takes the click, so the row stays unpainted.
+      const value = await row.locator("dd").boundingBox();
+      await page.mouse.move(value.x + 4, value.y + value.height / 2);
       await expect(action.locator("svg").locator("..")).toHaveCSS(
         "opacity",
         "1",
       );
+      expect(await background()).toBe(resting);
+      // Hovering the label itself doesn't paint the whole row either.
+      await action.hover();
+      await expect
+        .poll(() => action.evaluate((node) => node.matches(":hover")))
+        .toBe(true);
+      expect(await background()).toBe(resting);
     }
     await expect(action).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
     await expect(action).toHaveCSS("padding", "0px");
