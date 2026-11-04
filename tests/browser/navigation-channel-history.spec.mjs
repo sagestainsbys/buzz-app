@@ -57,6 +57,37 @@ async function expectRevealed(page, id) {
     ),
   ).toBeLessThan(4);
 }
+// Each link opening re-runs ChannelsPage's placement, which keeps the message
+// in the timeline only while #Alpha's window is ready and verified. The relay
+// fixture holds older pages until the test releases them; a held page times out
+// in the reader after 10 s and marks the window cached, and every later opening
+// then shows a thread. So check the window and that no older page is held.
+// With #Alpha's whole history loaded (no more), none can be requested later.
+async function expectVerifiedAlpha(page, app) {
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const view = window.fixtureRelay
+          .snapshot()
+          .session.channels.window("alpha");
+        return {
+          status: view.status,
+          freshness: view.freshness,
+          loadingOlder: view.loadingOlder,
+          hasMore: view.hasMore,
+          error: view.error ?? null,
+        };
+      }),
+    )
+    .toEqual({
+      status: "ready",
+      freshness: "verified",
+      loadingOlder: false,
+      hasMore: false,
+      error: null,
+    });
+  expect(app.pending).toHaveLength(0);
+}
 // From before a traversal until read, record each painted frame in which #Alpha
 // shows rows: its first visible row, whether the linked row is in view, and the
 // distance to the end.
@@ -165,6 +196,7 @@ test("Back and Forward return a link-opened channel to the reader's place; a fre
 
   // Following the link again is a new opening: it reveals the message.
   await leaveForBeta();
+  await expectVerifiedAlpha(page, app);
   await follow(page, link);
   await expectRevealed(page, target.id);
 });
@@ -189,6 +221,13 @@ test("Back between two links in one channel returns to the reader's place; the s
       .nth(index);
   await follow(page, link(0));
   await expectRevealed(page, first.id);
+  // Enter on the link is reading input in #Alpha's own timeline, so the
+  // reveal's scroll asks for the one older page beyond its 20-row head. Answer
+  // it, so no held read can time out under a later opening.
+  await expect.poll(() => app.pending.length).toBe(1);
+  app.pending.shift().release();
+  await expectVerifiedAlpha(page, app);
+  await settle(page);
   await end(page);
   await follow(page, link(1));
   await expectRevealed(page, second.id);
@@ -241,6 +280,7 @@ test("Back between two links in one channel returns to the reader's place; the s
   const entry = () =>
     page.evaluate(() => window.fixtureNavigation.snapshot().entry.id);
   const returned = await entry();
+  await expectVerifiedAlpha(page, app);
   await follow(page, link(0));
   await expectRevealed(page, first.id);
   expect(await entry()).toBe(returned);

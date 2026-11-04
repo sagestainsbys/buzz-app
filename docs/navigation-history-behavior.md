@@ -26,7 +26,10 @@ than in a thread: Back/Forward returns the timeline to where the reader left
 it, whether it comes from another channel or from another link in the same
 channel. Following the link again, Retry and opening the visit already shown
 are fresh openings and reveal the message. The place Back returns to is also
-where a later plain visit to that channel opens.
+where a later plain visit to that channel opens, with one exception: if a
+reveal left the reader less than 80 px from the end, Back keeps the message
+where the reveal placed it, but a plain visit opens at the latest message, as
+it does after the reader scrolls that close to the end.
 
 Profiles and GitHub use the same rule. Their read-only target and optional
 thread context are carried as `detail` in the scoped conversation address;

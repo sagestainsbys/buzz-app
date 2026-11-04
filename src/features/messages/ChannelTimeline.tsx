@@ -223,14 +223,23 @@ function Timeline({
       : readView<ReadingPosition | null>(scope, `scroll:${channelId}`, null),
   );
   const savedPosition = useRef(initialPosition);
+  // The place a reveal left: for its visit, with the exact follow state; for
+  // the channel, with the 80 px rule every other place is saved with. The
+  // channel's applies until a newer place replaces the reveal's.
+  const revealedPlace = useRef<{
+    visit: ReadingPosition;
+    channel: ReadingPosition;
+  }>(undefined);
   // Reload and quit never unmount: also save where scrolling settles. Only a
   // changed place is written; a following reader's own end scrolls are not.
   const written = useRef<string | undefined>(undefined);
   const savePosition = useCallback(() => {
+    const position =
+      revealedPlace.current?.visit === savedPosition.current
+        ? revealedPlace.current.channel
+        : savedPosition.current;
     // A bottom place restores at the latest message; its row is noise.
-    const place = savedPosition.current?.bottom
-      ? { bottom: true }
-      : savedPosition.current;
+    const place = position?.bottom ? { bottom: true } : position;
     const revision = JSON.stringify(place);
     if (transient || revision === written.current) return;
     if (writeView(scope, `scroll:${channelId}`, place))
@@ -694,12 +703,13 @@ function Timeline({
     )
       follow.current = false;
     // The reveal's placement is the reader's place even when it moved nothing
-    // and so no scroll event records it.
-    if (element)
-      savedPosition.current = {
-        ...positionAt(element),
-        bottom: follow.current,
-      };
+    // and so no scroll event records it. Its visit keeps the follow state, so
+    // Back doesn't re-align the row; the channel's place keeps the 80 px rule.
+    if (element) {
+      const channel = positionAt(element);
+      savedPosition.current = { ...channel, bottom: follow.current };
+      revealedPlace.current = { visit: savedPosition.current, channel };
+    }
     revealedRow.current = targetId;
     if (navigation && targetSignal === navigation.signal) present(navigation);
     navigation?.complete({ status: "opened" });

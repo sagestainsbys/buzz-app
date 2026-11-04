@@ -1623,7 +1623,12 @@ function linkVisits() {
         places.set(`${entryId}:${key}`, value);
       },
     }) satisfies PageNavigation;
-  const tree = (navigation?: PageNavigation, snapshot = window) => (
+  type InlineTarget = { messageId: string; signal: AbortSignal };
+  const tree = (
+    navigation?: PageNavigation,
+    snapshot = window,
+    inlineTarget?: InlineTarget,
+  ) => (
     <StrictMode>
       <ChannelTimeline
         channelId="c"
@@ -1631,6 +1636,7 @@ function linkVisits() {
         queries={owner.session}
         window={snapshot}
         navigation={navigation}
+        inlineTarget={inlineTarget}
         onOpenLink={() => false}
       />
     </StrictMode>
@@ -1653,9 +1659,13 @@ function linkVisits() {
     row: (id: string) =>
       history().querySelector<HTMLElement>(`[data-message-id="${id}"]`),
     /** Mounts the timeline for a visit, or presents another on the mounted one. */
-    show(navigation?: PageNavigation, snapshot = window) {
-      if (result) result.rerender(tree(navigation, snapshot));
-      else result = render(tree(navigation, snapshot));
+    show(
+      navigation?: PageNavigation,
+      snapshot = window,
+      inlineTarget?: InlineTarget,
+    ) {
+      if (result) result.rerender(tree(navigation, snapshot, inlineTarget));
+      else result = render(tree(navigation, snapshot, inlineTarget));
     },
     unmount() {
       result?.unmount();
@@ -1864,6 +1874,40 @@ it("a link's place is where its reveal left the reader, even if nothing scrolled
     offset: -10,
   });
   expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+});
+
+it("a reveal that ends just short of the end saves the channel's place at the end, and its visit's at the row", async () => {
+  const h = linkVisits();
+  h.layout({ [h.linked.id]: -90, [h.place.id]: 10, [h.latest.id]: 110 });
+  h.show();
+  // The reveal leaves the reader 40 px above the end: near it, not clamped.
+  h.history.scrollTop = 2000 - 600 - 40;
+  h.show(h.visit("link", h.place.id));
+  await h.settle();
+  // The reader leaves for another channel without scrolling.
+  h.unmount();
+  // A plain visit opens at the latest message, as after scrolling this close.
+  expect(readView("scope", "scroll:c", null)).toEqual({ bottom: true });
+  // Back keeps the row where the reveal placed it.
+  expect(h.places.get("link:timeline")).toEqual({
+    bottom: false,
+    anchor: { id: h.place.id, y: 10 },
+  });
+});
+
+it("an inline reveal that ends just short of the end saves the channel's place at the end", async () => {
+  const h = linkVisits();
+  h.layout({ [h.linked.id]: -90, [h.place.id]: 10, [h.latest.id]: 110 });
+  h.show();
+  h.history.scrollTop = 2000 - 600 - 40;
+  h.show(undefined, h.window, {
+    messageId: h.place.id,
+    signal: new AbortController().signal,
+  });
+  await h.settle();
+  expect(document.activeElement).toBe(h.row(h.place.id));
+  h.unmount();
+  expect(readView("scope", "scroll:c", null)).toEqual({ bottom: true });
 });
 
 it.each([
