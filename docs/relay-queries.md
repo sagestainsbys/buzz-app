@@ -690,7 +690,9 @@ draft or its undo history. An unsaved edit is kept separately, one per
 conversation or thread and outside Drafts, and reopens when its composer returns
 and the message loads, until Save or Cancel. It does not reopen in a media
 review's composer, or while another composer in the window has it open; choosing
-Edit there resumes it. Pending edits lock the editor until
+Edit there resumes it and returns the other composer to its draft. While another
+composer has a different message's edit open there, choosing Edit asks to finish
+or cancel that edit first. Pending edits lock the editor until
 delivery; failed or unknown outcomes offer retry of the same outbox event.
 Missing or concurrently changed targets are rejected without losing the user's
 input.

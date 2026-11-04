@@ -409,6 +409,81 @@ it("image review leaves a thread's kept edit closed until Edit is chosen there",
   }
 });
 
+it("Edit chosen in an image review takes over the thread panel's open edit", async () => {
+  const viewer = keypair();
+  const url = "https://fixture.test/handover.png";
+  const root = message(viewer, "channel", "Own media root", 10, [
+    ["imeta", `url ${url}`, "m image/png"],
+  ]);
+  const reply = message(viewer, "channel", "Own reply", 11, [
+    ["e", root.id, "", "reply"],
+  ]);
+  const owner = editOwner(viewer, [root, reply]);
+  try {
+    await authorize(owner);
+    const shared = {
+      session: owner.session,
+      scope: "handover-review-edit",
+      channelId: "channel",
+      channelName: "General",
+      close: () => {},
+      onOpenLink: () => false,
+    };
+    const thread = within(
+      render(<ThreadPanel {...shared} messageId={root.id} />, {
+        reactStrictMode: true,
+      }).container,
+    );
+    await thread.findByText("Own reply");
+    const input = thread.getByRole<ComposerInputElement>("textbox", {
+      name: "Reply to thread",
+    });
+    fireEvent.keyDown(input, { key: "ArrowUp", metaKey: true });
+    act(() => {
+      input.value = "Rewritten reply";
+      input.setSelectionRange(15, 15);
+    });
+    fireEvent.input(input);
+    const opened = render(
+      <MediaReviewViewer
+        {...shared}
+        messageId={root.id}
+        attachment={{ url, kind: "image" }}
+        initialTime={0}
+      />,
+      { reactStrictMode: true },
+    );
+    const review = within(await screen.findByRole("dialog"));
+    await review.findByText("Own reply");
+    const comment = review.getByRole<ComposerInputElement>("textbox", {
+      name: "Reply to thread",
+    });
+    const panelFocus = vi.fn();
+    input.addEventListener("focus", panelFocus);
+    fireEvent.keyDown(comment, { key: "ArrowUp" });
+    expect(comment).toHaveAccessibleName("Edit message");
+    expect(comment).toHaveValue("Rewritten reply");
+    expect(input).toHaveAccessibleName("Reply to thread");
+    expect(input).toHaveValue("");
+    expect(panelFocus).not.toHaveBeenCalled();
+    act(() => {
+      comment.value = "Rewritten reply, from the review";
+      comment.setSelectionRange(32, 32);
+    });
+    fireEvent.input(comment);
+    opened.unmount();
+    // No editor in the panel can write the older text back over the review's.
+    expect(input).toHaveAccessibleName("Reply to thread");
+    expect(input).toHaveValue("");
+    fireEvent.keyDown(input, { key: "ArrowUp", metaKey: true });
+    expect(input).toHaveAccessibleName("Edit message");
+    expect(input).toHaveValue("Rewritten reply, from the review");
+  } finally {
+    cleanup();
+    owner.dispose();
+  }
+});
+
 it.each(["reject", "commit"] as const)(
   "keeps the edit open until delayed Outbox dismissal can %s",
   async (outcome) => {

@@ -168,9 +168,12 @@ const noChannels: ReturnType<ComposerSession["channels"]["list"]> = {
   channels: [],
 };
 const noSubscription = () => () => {};
-// The edit view each composer in this window has open, so a quiet resume
-// leaves an edit open in another composer alone.
-const openEdits = new Map<object, string>();
+// The edit each composer in this window has open, so a quiet resume leaves it
+// alone and choosing Edit elsewhere takes it over.
+const openEdits = new Map<
+  object,
+  { view: string; id: string; handOver(): void }
+>();
 
 type AcceptedDraft = {
   next: MentionDraft;
@@ -1104,8 +1107,9 @@ function Composer({
   const editing = useMessageEdit(session, () => {
     const saved = beforeEdit.current;
     if (!saved) return;
-    if (editKey) writeView(scope, editKey, null);
-    openEdits.delete(beforeEdit);
+    // An edit handed over to another composer keeps its record there.
+    if (openEdits.delete(beforeEdit) && editKey)
+      writeView(scope, editKey, null);
     valueRef.current = saved.value;
     updateDraft(saved.value);
     saved.restore();
@@ -1544,6 +1548,13 @@ function Composer({
       ? { id: kept.id, base: kept.base, draft: mentionDraft(kept.draft) }
       : undefined;
   };
+  // Another composer took this edit over: return to the draft without moving
+  // focus here.
+  const handOver = useEffectEvent(() => {
+    openEdits.delete(beforeEdit);
+    editing.close();
+    focusRestoredDraft.current = false;
+  });
   /** Opens `row` in the editor, with its kept unsaved edit if there is one.
    * A quiet start, resuming that edit unasked, neither reports a message that
    * can no longer be edited nor moves focus. False: this composer cannot edit
@@ -1569,7 +1580,13 @@ function Composer({
       return true;
     }
     const open = `${scope}\n${editKey}`;
-    if (quiet && [...openEdits.values()].includes(open)) return true;
+    const other = [...openEdits.values()].find((edit) => edit.view === open);
+    if (other && (quiet || other.id !== current.id)) {
+      if (!quiet) setError("Finish or cancel your current edit first.");
+      return true;
+    }
+    // The kept record holds the latest text of the edit taken over.
+    other?.handOver();
     const kept = keptEdit();
     const resumed = kept?.id === current.id ? kept : undefined;
     completion.invalidate();
@@ -1577,7 +1594,7 @@ function Composer({
       value: valueRef.current,
       restore: input.current.checkpoint(),
     };
-    openEdits.set(beforeEdit, open);
+    openEdits.set(beforeEdit, { view: open, id: current.id, handOver });
     const body = editing.start(
       current,
       (body) =>

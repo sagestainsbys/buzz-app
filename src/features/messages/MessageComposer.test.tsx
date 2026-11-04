@@ -8774,6 +8774,37 @@ it("leaves a kept edit closed while another composer in this window has it open"
   expect(again.input()).toHaveValue("Rewritten elsewhere");
 });
 
+it("refuses to edit another message while another composer has an edit open on its key", () => {
+  const root = "a".repeat(64);
+  const older = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const newer = editableMessage({
+    id: "d".repeat(64),
+    threadRootId: root,
+    createdAt: 11,
+  });
+  const h = mount(
+    { threadRootId: root, editMessages: [older, newer], threadSeed: newer },
+    undefined,
+    first.pubkey,
+  );
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten newer");
+  // Taking the edit over would close an editor whose text the next keystroke
+  // here replaces in the kept record.
+  const other = mount(
+    { threadRootId: root, editMessages: [older], threadSeed: older },
+    undefined,
+    first.pubkey,
+  );
+  fireEvent.keyDown(other.input(), { key: "ArrowUp" });
+  expect(other.input()).toHaveAccessibleName("Reply to thread");
+  expect(within(other.container).getByRole("alert")).toHaveTextContent(
+    "Finish or cancel your current edit first.",
+  );
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("Rewritten newer");
+});
+
 it("selects the newest message on Up when the scope has a message list, instead of editing", () => {
   const base = mount({}, undefined, first.pubkey);
   base.unmount();

@@ -215,7 +215,9 @@ that agent in Buzz; they do not notify the external app through this connection.
 - **Editing a message** keeps your unsaved changes when you switch channels,
   close the thread or restart Buzz, and the edit reopens when you come back.
   An image or video review's comments do not reopen it. If it does not reopen,
-  choose **Edit message** on that message again. Save or Cancel ends it.
+  choose **Edit message** on that message again. That also moves the edit out of
+  another composer that has it open, such as the thread under a review. Save or
+  Cancel ends it.
   Unsaved edits are not listed in Drafts.
 - **Emoji suggestions** appear when you type `:` and an emoji name. If a name
   is shortened with an ellipsis, hover over it or use the arrow keys to select
