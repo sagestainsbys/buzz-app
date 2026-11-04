@@ -71,6 +71,7 @@ import {
   externalLinkMarkdown,
   composerClipboard,
   identityLink,
+  pastedFiles,
 } from "./composer-clipboard";
 import {
   mentionBoundary,
@@ -2135,12 +2136,7 @@ export function EditableInput({
             const raw = plainPaste;
             plainPaste = false;
             // File paste belongs to the host attachment capture; never replace text.
-            if (
-              Array.from(event.clipboardData?.items ?? []).some(
-                (item) => item.kind === "file",
-              )
-            )
-              return true;
+            if (pastedFiles(event.clipboardData).length) return true;
             const plain = event.clipboardData?.getData("text/plain") ?? "";
             // Raw text replaces the selection with the caret's marks: no copied
             // structure, links, selection linking, URL spacing or recipients.

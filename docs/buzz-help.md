@@ -203,6 +203,9 @@ that agent in Buzz; they do not notify the external app through this connection.
 - **Long text pastes** that exceed the message limit show an error and leave
   your draft unchanged. Shorten the text, or save it as a text file and use
   **Attach files** where uploads are available.
+- **Pasting from Excel, Numbers, Word or Keynote** inserts the copied text, even
+  though those apps also copy a picture of it. A picture or file copied on its
+  own attaches where uploads are available.
 - **File sharing** is available through **Attach files** in the composer when
   uploads are available. Files and media are shared with the conversation's
   members. If an upload fails, its attachment shows the reason, **Retry**, and

@@ -355,7 +355,10 @@ it("announces eager preparation, then background upload after Send, while editor
   const editor = screen.getByRole("textbox");
   editor.focus();
   fireEvent.paste(editor, {
-    clipboardData: { items: [{ kind: "file", getAsFile: () => source }] },
+    clipboardData: {
+      items: [{ kind: "file", getAsFile: () => source }],
+      getData: () => "",
+    },
   });
   const status = screen.getByRole("status", { name: "" });
   expect(status).toHaveAttribute("aria-live", "polite");

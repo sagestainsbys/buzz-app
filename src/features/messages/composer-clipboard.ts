@@ -246,3 +246,21 @@ export function externalLinkMarkdown(
   }
   return serializeNode(body, "markdown");
 }
+
+/** Files a paste attaches. Text copied with a picture, as Excel, Numbers,
+ * Word and Keynote copy, pastes as text; a copied file's own name or a copied
+ * image's URL is not text to keep. */
+export function pastedFiles(data: DataTransfer | null) {
+  const files = Array.from(data?.items ?? [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => file !== null);
+  const names = new Set(files.map((file) => file.name));
+  const text = (data?.getData("text/plain") ?? "")
+    .split(/\r\n?|\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return text.every((line) => names.has(line) || /^https?:\/\/\S+$/.test(line))
+    ? files
+    : [];
+}
