@@ -2075,7 +2075,8 @@ it("pastes text copied together with a picture as text, and attaches a file past
 
 /** Pastes a TextEdit copy of two paragraphs around a picture as WebKit hands
  * it to the page: the picture is a blob: URL in the HTML and U+FFFC in the
- * text, with no file item. Its fetch waits for `picture()`. */
+ * text, with no file item. The composer and its editor read the HTML once. Its
+ * fetch waits for `picture()`. */
 function pasteTextEditCopy(input: HTMLElement) {
   const src = "blob:http://127.0.0.1:4873/ba90c5a8-7c1e-4d0b-9f2a-3e6d8b1c5f40";
   const read = deferred<Blob>();
@@ -2088,16 +2089,20 @@ function pasteTextEditCopy(input: HTMLElement) {
       "Lunch budget notes for Q3.\n\uFFFC\nVenue costs went up twelve percent.\n",
     "text/html": `<p><span>Lunch budget notes for Q3.</span></p>\n<p><span><img src="${src}" alt="Attachment.png"></span></p>\n<p><span>Venue costs went up twelve percent.</span></p><br class="Apple-interchange-newline">`,
   };
+  const getData = vi.fn((type: string) => flavors[type] ?? "");
   act(() => {
     input.focus();
     fireEvent.paste(input, {
       clipboardData: {
         items: [],
         types: ["text/html", "text/plain"],
-        getData: (type: string) => flavors[type] ?? "",
+        getData,
       },
     });
   });
+  expect(getData.mock.calls.filter(([type]) => type === "text/html")).toEqual([
+    ["text/html"],
+  ]);
   expect(fetch).toHaveBeenCalledExactlyOnceWith(src);
   return () =>
     act(async () => read.resolve(new Blob(["png"], { type: "image/png" })));

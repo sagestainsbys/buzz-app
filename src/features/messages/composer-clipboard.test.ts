@@ -5,6 +5,7 @@ import {
   composerClipboard,
   fetchPastedImages,
   pastedFiles,
+  pastedHtml,
   pastedInlineImages,
 } from "./composer-clipboard";
 import { composerSchema } from "./composer-document";
@@ -279,25 +280,25 @@ it("attaches nothing without a clipboard", () => {
   expect(pastedFiles(null)).toEqual([]);
 });
 
-it("collects the pictures a rich paste holds as blob: or data: URLs, once each", () => {
+it("collects the pictures a rich paste holds as blob: URLs, once each", () => {
   const read: string[] = [];
   const blob = "blob:http://127.0.0.1:4873/ba90c5a8";
-  const data = "data:image/png;base64,iVBORw0KGgo=";
-  // WebKit's HTML for a TextEdit copy: a blob: picture between paragraphs.
+  const chart = "blob:http://127.0.0.1:4873/5f0e2c71";
+  // WebKit's HTML for a TextEdit copy: blob: pictures between paragraphs.
   const html = [
     "<p><span>Lunch budget notes for Q3.</span></p>",
     `<p><span><img src="${blob}" alt="Attachment.png"></span></p>`,
-    `<p><img src="${data}" alt="Revenue chart"></p>`,
+    `<p><img src="${chart}" alt="Revenue chart"></p>`,
     `<p><img src="${blob}" alt="Attachment.png"></p>`,
     '<p><img src="https://example.com/logo.png" alt="logo.png"></p>',
-    '<p><img src="data:text/plain,notes" alt="notes.txt"></p>',
+    '<p><img src="data:image/png;base64,iVBORw0KGgo=" alt="dot.png"></p>',
     "<p><span>Venue costs went up twelve percent.</span></p>",
   ].join("\n");
   expect(
     pastedInlineImages(clipboard([], "Lunch\n\uFFFC\nVenue", html, read)),
   ).toEqual([
     { src: blob, name: "Attachment.png" },
-    { src: data, name: undefined },
+    { src: chart, name: undefined },
   ]);
   expect(read).toEqual(["text/html"]);
 });
@@ -307,11 +308,46 @@ it.each<[shape: string, html?: string]>([
     "a copied web page's images",
     '<p>Our logo</p><img src="https://example.com/logo.png">',
   ],
+  [
+    "a Chrome web page copy with a lazy-load placeholder",
+    '<p>Result</p><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7">',
+  ],
+  [
+    "an inline favicon",
+    '<p><img src="data:image/png;base64,iVBORw0KGgo=" alt="favicon.png">Example</p>',
+  ],
   ["HTML without pictures", "<p>notes</p>"],
   ["no HTML"],
 ])("collects no pictures from %s", (_shape, html) => {
   expect(pastedInlineImages(clipboard([], "notes", html))).toEqual([]);
 });
+
+it.each<[shape: string, names: string[], text: string, html: string]>([
+  [
+    "a TextEdit copy with a picture",
+    [],
+    "Lunch\n\uFFFC",
+    '<p>Lunch</p><p><img src="blob:http://127.0.0.1:4873/ba90c5a8" alt="Attachment.png"></p>',
+  ],
+  [
+    "a link-only cell and a picture from Excel",
+    ["image.png"],
+    "https://example.com/",
+    '<table><tr><td><a href="https://example.com/">https://example.com/</a></td></tr></table>',
+  ],
+])(
+  "%s reads its HTML once for the composer and its editor",
+  (_shape, names, text, html) => {
+    const read: string[] = [];
+    const data = clipboard(names, text, html, read);
+    // The composer's paste capture, then the editor's paste handler.
+    expect(pastedFiles(data)).toEqual([]);
+    pastedInlineImages(data);
+    expect(pastedFiles(data)).toEqual([]);
+    expect(pastedHtml(data)).toBe(html);
+    expect(read.filter((type) => type === "text/html")).toEqual(["text/html"]);
+  },
+);
 
 it("collects no pictures without a clipboard", () => {
   expect(pastedInlineImages(null)).toEqual([]);
@@ -322,8 +358,9 @@ it("reads pasted pictures in order, names unnamed ones and leaves out unreadable
     "blob:named": new Blob(["a"], { type: "image/png" }),
     "blob:jpeg": new Blob(["bb"], { type: "image/jpeg" }),
     "blob:text": new Blob(["c"], { type: "text/plain" }),
-    "data:image/png;base64,AA==": new Blob(["d"], { type: "image/png" }),
+    "blob:png": new Blob(["d"], { type: "image/png" }),
     "blob:icon": new Blob(["e"], { type: "image/x-icon" }),
+    "blob:svg": new Blob(["f"], { type: "image/svg+xml" }),
   };
   const fetch = vi.fn(async (src: string) => {
     const blob = blobs[src];
@@ -337,16 +374,18 @@ it("reads pasted pictures in order, names unnamed ones and leaves out unreadable
       { src: "blob:revoked" },
       { src: "blob:jpeg" },
       { src: "blob:text", name: "notes.png" },
-      { src: "data:image/png;base64,AA==" },
+      { src: "blob:png" },
       { src: "blob:icon" },
+      { src: "blob:svg" },
     ]);
     expect(files.map((file) => [file.name, file.type, file.size])).toEqual([
       ["Attachment.png", "image/png", 1],
       ["Pasted image.jpg", "image/jpeg", 2],
       ["Pasted image 2.png", "image/png", 1],
-      ["Pasted image 3.png", "image/x-icon", 1],
+      ["Pasted image 3.icon", "image/x-icon", 1],
+      ["Pasted image 4.svg", "image/svg+xml", 1],
     ]);
-    expect(fetch).toHaveBeenCalledTimes(6);
+    expect(fetch).toHaveBeenCalledTimes(7);
   } finally {
     vi.unstubAllGlobals();
   }

@@ -247,6 +247,20 @@ export function externalLinkMarkdown(
   return serializeNode(body, "markdown");
 }
 
+const pastedHtmls = new WeakMap<DataTransfer, string>();
+
+/** A paste's text/html, read once for the composer and its editor: each read
+ * can be a pasteboard round trip, and in WebKit can mint new `blob:` URLs for
+ * its pictures. */
+export function pastedHtml(data: DataTransfer | null) {
+  if (!data) return "";
+  const read = pastedHtmls.get(data);
+  if (read !== undefined) return read;
+  const html = data.getData("text/html");
+  pastedHtmls.set(data, html);
+  return html;
+}
+
 /** Files a paste attaches. Text copied with a picture, as Excel, Numbers,
  * Word and Keynote copy, pastes as text; a copied file's own name or a copied
  * image's URL is not text to keep. */
@@ -267,7 +281,7 @@ export function pastedFiles(data: DataTransfer | null) {
   // Read the HTML last: each read can be a pasteboard round trip.
   return lines.every((line) => /^https?:\/\/\S+$/.test(line)) &&
     !new DOMParser()
-      .parseFromString(data?.getData("text/html") ?? "", "text/html")
+      .parseFromString(pastedHtml(data), "text/html")
       .body.textContent?.trim()
     ? files
     : [];
@@ -275,15 +289,15 @@ export function pastedFiles(data: DataTransfer | null) {
 
 /** Pictures a paste carries only in its HTML, with no file item. WebKit
  * exposes a pasted RTFD's or web archive's pictures, as TextEdit, Notes, Pages
- * and Mail copy them, as `blob:` URLs of this page; some apps embed `data:`
- * URLs. Chromium exposes neither, so there the picture does not arrive. Web
- * addresses are a copied page's own images, never fetched. For a paste whose
- * `pastedFiles` is empty. */
+ * and Mail copy them, as `blob:` URLs of this page. Chromium does not, so
+ * there the picture does not arrive. Web and `data:` addresses are a copied
+ * page's own images, such as favicons and lazy-load placeholders, never
+ * attached. For a paste whose `pastedFiles` is empty. */
 export function pastedInlineImages(data: DataTransfer | null) {
   if (!data?.types?.includes("text/html")) return [];
-  const html = data.getData("text/html");
+  const html = pastedHtml(data);
   // Most pasted HTML has no such picture; skip parsing it.
-  if (!/blob:|data:image\//i.test(html)) return [];
+  if (!/blob:/i.test(html)) return [];
   const parsed = new DOMParser().parseFromString(html, "text/html");
   const images = new Map<string, string | undefined>();
   for (const image of parsed.images) {
@@ -291,25 +305,21 @@ export function pastedInlineImages(data: DataTransfer | null) {
     // The alt names the picture when it is a file name, as WebKit's is.
     const alt = image.alt.trim();
     const name = /^[^\\/\n]+\.[a-z][a-z\d]{1,4}$/i.test(alt) ? alt : undefined;
-    if (/^(?:blob:|data:image\/)/i.test(src) && !images.has(src))
-      images.set(src, name);
+    if (/^blob:/i.test(src) && !images.has(src)) images.set(src, name);
   }
   return [...images].map(([src, name]) => ({ src, name }));
 }
 
-const pastedImageExtensions: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/tiff": "tiff",
-};
+/** A picture's extension from its type's subtype: image/svg+xml is svg and
+ * image/x-icon is icon. */
+function pastedImageExtension(type: string) {
+  const subtype = /^image\/(?:x-)?([a-z\d]*)/.exec(type)?.[1];
+  return subtype === "jpeg" ? "jpg" : subtype || "png";
+}
 
-/** The pictures `pastedInlineImages` found, as files in paste order: the
- * `blob:` URLs WebKit gives a pasted RTFD's or web archive's pictures, and
- * `data:` URLs (Chromium gives neither). One that cannot be read, or is not an
- * image, is left out. Unnamed ones are "Pasted image", numbered from the
- * second. */
+/** The pictures `pastedInlineImages` found, as files in paste order. One that
+ * cannot be read, or is not an image, is left out. Unnamed ones are "Pasted
+ * image", numbered from the second. */
 export async function fetchPastedImages(
   images: readonly { src: string; name?: string | undefined }[],
 ): Promise<File[]> {
@@ -326,7 +336,7 @@ export async function fetchPastedImages(
     const blob = blobs[index];
     if (!blob) return [];
     const fallback = () =>
-      `Pasted image${++unnamed > 1 ? ` ${unnamed}` : ""}.${pastedImageExtensions[blob.type] ?? "png"}`;
+      `Pasted image${++unnamed > 1 ? ` ${unnamed}` : ""}.${pastedImageExtension(blob.type)}`;
     return [new File([blob], name ?? fallback(), { type: blob.type })];
   });
 }
