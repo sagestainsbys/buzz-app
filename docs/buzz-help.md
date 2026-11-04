@@ -406,6 +406,15 @@ confirmation.
 
 - Plugins can add features. **Settings → Plugins → Manage plugins** controls
   them. Do not assume a particular optional plugin is on.
+- On desktop, Buzz checks saved Git plugin sources at startup and once per hour
+  while the app is visible. Checks do not install or reload plugins. A notice
+  offers **Update and reload**, or **Review permissions** when access increases.
+  Save unfinished forms and stop active plugin workers before you update.
+  **Later** hides the notice for this candidate until the next app run. The
+  update stays in the profile menu under **Plugins**. A newer candidate can show
+  a notice again. Failed checks offer **Retry**. If the updated plugin cannot
+  start, use **Retry activation** or its recovery menu to **Roll back**, when
+  available. Checks, review, Later, and cancellation keep plugin work running.
 - **Reminders** and **Workflows** start off on fresh installs. Upgrades preserve
   their previous state, including when no choice was saved. Enable or disable
   them in **Manage plugins**; saved choices persist.
