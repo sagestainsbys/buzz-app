@@ -169,6 +169,24 @@ it("reads crafted HTML whose anchors have no text as an empty paste, not an erro
   });
 });
 
+function clipboard(
+  names: string[],
+  text: string,
+  html = "",
+  read: string[] = [],
+) {
+  return {
+    items: names.map((name) => ({
+      kind: "file",
+      getAsFile: () => new File([name], name),
+    })),
+    getData: (type: string) => {
+      read.push(type);
+      return type === "text/plain" ? text : type === "text/html" ? html : "";
+    },
+  } as unknown as DataTransfer;
+}
+
 it.each<
   [
     shape: string,
@@ -226,17 +244,33 @@ it.each<
     "See https://example.com/",
   ],
   ["text alone", [], [], "notes"],
-])("%s attaches %j", (_shape, expected, names, text, html = "") => {
-  const data = {
-    items: names.map((name) => ({
-      kind: "file",
-      getAsFile: () => new File([name], name),
-    })),
-    getData: (type: string) =>
-      type === "text/plain" ? text : type === "text/html" ? html : "",
-  } as unknown as DataTransfer;
-  expect(pastedFiles(data).map((file) => file.name)).toEqual(expected);
+])("%s attaches %j", (_shape, expected, names, text, html) => {
+  expect(
+    pastedFiles(clipboard(names, text, html)).map((file) => file.name),
+  ).toEqual(expected);
 });
+
+it.each<[shape: string, names: string[], text: string, html: string]>([
+  [
+    "a link alone",
+    [],
+    "https://example.com/",
+    '<a href="https://example.com/">https://example.com/</a>',
+  ],
+  [
+    "text and a picture from Excel",
+    ["image.png"],
+    "Q3 revenue\t$4.2M",
+    "<table><tr><td>Q3 revenue</td><td>$4.2M</td></tr></table>",
+  ],
+])(
+  "%s pastes as text without reading its HTML",
+  (_shape, names, text, html) => {
+    const read: string[] = [];
+    expect(pastedFiles(clipboard(names, text, html, read))).toEqual([]);
+    expect(read).not.toContain("text/html");
+  },
+);
 
 it("attaches nothing without a clipboard", () => {
   expect(pastedFiles(null)).toEqual([]);
