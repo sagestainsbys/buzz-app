@@ -1622,37 +1622,56 @@ function linkVisits() {
         places.set(`${entryId}:${key}`, value);
       },
     }) satisfies PageNavigation;
-  const tree = (navigation?: PageNavigation) => (
+  const tree = (navigation?: PageNavigation, snapshot = window) => (
     <StrictMode>
       <ChannelTimeline
         channelId="c"
         scope="scope"
         queries={owner.session}
-        window={window}
+        window={snapshot}
         navigation={navigation}
         onOpenLink={() => false}
       />
     </StrictMode>
   );
-  const result = render(tree());
-  const history = screen.getByRole("region", {
-    name: "Channel message history",
-  });
+  let result: ReturnType<typeof render> | undefined;
+  const history = () =>
+    screen.getByRole("region", { name: "Channel message history" });
   return {
     linked,
     place,
     latest,
+    window,
     places,
     visit,
-    history,
+    get history() {
+      return history();
+    },
     /** The reader's place: the "Reading place" row 42 px below the top. */
     saved: { bottom: false, anchor: { id: place.id, y: 42 } },
     row: (id: string) =>
-      history.querySelector<HTMLElement>(`[data-message-id="${id}"]`),
-    show(navigation?: PageNavigation) {
-      result.rerender(tree(navigation));
+      history().querySelector<HTMLElement>(`[data-message-id="${id}"]`),
+    /** Mounts the timeline for a visit, or presents another on the mounted one. */
+    show(navigation?: PageNavigation, snapshot = window) {
+      if (result) result.rerender(tree(navigation, snapshot));
+      else result = render(tree(navigation, snapshot));
     },
-    unmount: result.unmount,
+    unmount() {
+      result?.unmount();
+      result = undefined;
+    },
+    /** Rows on screen, each `top` px below the top of the history. */
+    layout(tops: Record<string, number>) {
+      vi.spyOn(
+        HTMLElement.prototype,
+        "getBoundingClientRect",
+      ).mockImplementation(function (this: HTMLElement) {
+        const id =
+          this.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+        if (!id) return new DOMRect(0, 0, 800, 600);
+        return new DOMRect(0, tops[id] ?? 300, 800, 100);
+      });
+    },
     /** Run frames until a reveal or restoration has finished. */
     async settle() {
       for (let i = 0; i < 6; i++) await frame();
@@ -1664,15 +1683,18 @@ it("Back to a link's visit returns to where the reader left it, without revealin
   const h = linkVisits();
   h.places.set("link:timeline", h.saved);
   const back = h.visit("link", h.linked.id, true);
+  // The timeline mounts for the return, as it does coming back from another channel.
   h.show(back);
   await h.settle();
   expect(scroll.toIndex).toHaveBeenLastCalledWith(1, {
     align: "start",
     offset: -42,
   });
+  expect(scroll.toIndex).not.toHaveBeenCalledWith(0, expect.anything());
   expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
-  expect(document.activeElement).not.toBe(h.row(h.linked.id));
-  // Nothing else completes a link's visit once its reveal is skipped.
+  // Nothing else completes a link's visit once its reveal is skipped, and
+  // StrictMode's second effect pass doesn't complete it again.
+  expect(back.complete).toHaveBeenCalledTimes(1);
   expect(back.complete).toHaveBeenCalledWith({ status: "opened" });
   // Focus the opener left behind moves to the restored reading.
   expect(document.activeElement).toBe(h.history);
@@ -1680,21 +1702,14 @@ it("Back to a link's visit returns to where the reader left it, without revealin
 
 it("a mounted timeline records a link's place as the reader leaves it, and Back returns there", async () => {
   const h = linkVisits();
+  h.show();
   const first = h.visit("first", h.linked.id);
   h.show(first);
   await h.settle();
   expect(document.activeElement).toBe(h.row(h.linked.id));
   expect(first.complete).toHaveBeenCalledWith({ status: "opened" });
   // The reader scrolls on until "Reading place" is the first whole row.
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
-    function (this: HTMLElement) {
-      const id =
-        this.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
-      if (!id) return new DOMRect(0, 0, 800, 600);
-      const top = { [h.linked.id]: -200, [h.place.id]: 42 }[id] ?? 300;
-      return new DOMRect(0, top, 800, 100);
-    },
-  );
+  h.layout({ [h.linked.id]: -200, [h.place.id]: 42 });
   h.history.scrollTop = 500;
   fireEvent.scroll(h.history);
   expect(h.places.has("first:timeline")).toBe(false);
@@ -1715,33 +1730,143 @@ it("a mounted timeline records a link's place as the reader leaves it, and Back 
     offset: -42,
   });
   expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(back.complete).toHaveBeenCalledTimes(1);
   expect(back.complete).toHaveBeenCalledWith({ status: "opened" });
   // Focus on the row the second link revealed moves to the restored reading.
   expect(document.activeElement).toBe(h.history);
 });
 
-it.each([
-  ["Back to a place no longer loaded", "gone", true],
-  ["An opening that isn't Back/Forward, such as Retry", undefined, undefined],
-] as const)("%s reveals the link again", async (_, anchor, traversal) => {
+it("Back leaves focus the reader moved to another row where it is", async () => {
   const h = linkVisits();
-  h.places.set("link:timeline", {
-    bottom: false,
-    anchor: { id: anchor ?? h.place.id, y: 42 },
-  });
-  const navigation = h.visit("link", h.linked.id, traversal);
-  h.show(navigation);
+  h.show(h.visit("first", h.linked.id));
   await h.settle();
-  const row = h.row(h.linked.id);
-  expect(document.activeElement).toBe(row);
-  expect(
-    vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts,
-  ).toContain(row);
-  expect(navigation.complete).toHaveBeenCalledWith({ status: "opened" });
+  h.show(h.visit("second", h.latest.id));
+  await h.settle();
+  h.row(h.linked.id)?.focus();
+  h.show(h.visit("first", h.linked.id, true));
+  await h.settle();
+  expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledTimes(2);
+  expect(document.activeElement).toBe(h.row(h.linked.id));
 });
+
+it("a relay rebind of the visit Back returned to leaves the reader where they are", async () => {
+  const h = linkVisits();
+  h.places.set("link:timeline", h.saved);
+  const back = h.visit("link", h.linked.id, true);
+  h.show(back);
+  await h.settle();
+  // The reader reads on and puts focus down before the session's snapshot changes.
+  fireEvent.wheel(h.history, { deltaY: 200 });
+  h.layout({ [h.linked.id]: -400, [h.place.id]: -200, [h.latest.id]: 0 });
+  h.history.scrollTop = 200;
+  fireEvent.scroll(h.history);
+  h.history.blur();
+  scroll.toIndex.mockClear();
+  const rebound = {
+    ...back,
+    signal: new AbortController().signal,
+    complete: vi.fn<PageNavigation["complete"]>(() => true),
+  };
+  // The page passes no navigation for the render that rebinds it.
+  h.show();
+  h.show(rebound);
+  await h.settle();
+  expect(scroll.toIndex).not.toHaveBeenCalled();
+  expect(document.activeElement).toBe(document.body);
+  expect(rebound.complete).toHaveBeenCalledTimes(1);
+});
+
+it("a link's place is where its reveal left the reader, even if nothing scrolled", async () => {
+  const h = linkVisits();
+  // The link's row, the second-latest message, already sits near the top.
+  h.layout({ [h.linked.id]: -90, [h.place.id]: 10, [h.latest.id]: 110 });
+  h.show(h.visit("link", h.place.id));
+  await h.settle();
+  // The reader leaves for another channel without scrolling.
+  h.unmount();
+  scroll.toIndex.mockClear();
+  vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+  h.show(h.visit("link", h.place.id, true));
+  await h.settle();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, {
+    align: "start",
+    offset: -10,
+  });
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+});
+
+it("Back waits for verified rows before deciding the reader's place is gone", async () => {
+  const h = linkVisits();
+  h.places.set("link:timeline", h.saved);
+  const back = h.visit("link", h.linked.id, true);
+  // Rows cached from an earlier read don't include the reader's place.
+  h.show(back, {
+    ...h.window,
+    freshness: "cached",
+    rows: h.window.rows.filter((row) => row.id !== h.place.id),
+  });
+  await h.settle();
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(back.complete).not.toHaveBeenCalled();
+  // The verified read has it, so Back returns there.
+  h.show(back);
+  await h.settle();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, {
+    align: "start",
+    offset: -42,
+  });
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(back.complete).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ["Back to a place no longer loaded", "gone", true, false],
+  ["Back to a place a failed read couldn't load", undefined, true, true],
+  [
+    "An opening that isn't Back/Forward, such as Retry",
+    undefined,
+    undefined,
+    false,
+  ],
+] as const)(
+  "%s reveals the link again",
+  async (_, anchor, traversal, failed) => {
+    const h = linkVisits();
+    h.places.set("link:timeline", {
+      bottom: false,
+      anchor: { id: anchor ?? h.place.id, y: 42 },
+    });
+    const navigation = h.visit("link", h.linked.id, traversal);
+    h.show(
+      navigation,
+      failed
+        ? {
+            ...h.window,
+            freshness: "cached",
+            error: "Relay unavailable",
+            rows: h.window.rows.filter((row) => row.id !== h.place.id),
+          }
+        : h.window,
+    );
+    await h.settle();
+    const row = h.row(h.linked.id);
+    expect(document.activeElement).toBe(row);
+    expect(
+      vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts,
+    ).toContain(row);
+    // Nothing positions at the place this visit can't return to.
+    expect(scroll.toIndex).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ offset: -42 }),
+    );
+    expect(navigation.complete).toHaveBeenCalledTimes(1);
+    expect(navigation.complete).toHaveBeenCalledWith({ status: "opened" });
+  },
+);
 
 it("records a link's place only once its visit was presented", async () => {
   const h = linkVisits();
+  h.show();
   await h.settle();
   // The reader has a place in the channel before following a link.
   fireEvent.scroll(h.history);

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixture.mjs";
-import { end, expectAnchor, open, settle, upper } from "./timeline.mjs";
+import { anchor, end, expectAnchor, open, settle, upper } from "./timeline.mjs";
 
 // A link stays in the channel timeline only for a top-level message without
 // replies inside the latest 20 rows; any other link opens a thread, whose
@@ -57,13 +57,15 @@ async function expectRevealed(page, id) {
     ),
   ).toBeLessThan(4);
 }
-// From before a traversal until read, record each frame in which #Alpha shows
-// rows: its first visible row, whether the linked row is in view, and the
+// From before a traversal until read, record each painted frame in which #Alpha
+// shows rows: its first visible row, whether the linked row is in view, and the
 // distance to the end.
 const sampleFrames = (page, linked) =>
   page.evaluate((linked) => {
     const frames = [];
     window.channelFrames = frames;
+    // A task queued from a frame callback runs after that frame paints.
+    const next = () => requestAnimationFrame(() => setTimeout(sample));
     const sample = () => {
       if (window.channelFrames !== frames) return;
       const node = document.querySelector(
@@ -86,9 +88,9 @@ const sampleFrames = (page, linked) =>
             node.scrollHeight - node.clientHeight - node.scrollTop,
           ),
         });
-      requestAnimationFrame(sample);
+      next();
     };
-    requestAnimationFrame(sample);
+    next();
   }, linked);
 const sampledFrames = (page) =>
   page.evaluate(() => {
@@ -190,6 +192,7 @@ test("Back between two links in one channel returns to the reader's place; the s
   await end(page);
   await follow(page, link(1));
   await expectRevealed(page, second.id);
+  const revealed = await anchor(page);
 
   // The mounted timeline returns to the end. Until Back lands it still shows
   // the second link's place; no frame goes back to the first link's row.
@@ -227,7 +230,7 @@ test("Back between two links in one channel returns to the reader's place; the s
   await opened(page);
   await settle(page);
   await expect(history(page)).toBeFocused();
-  expect(await gap(page)).toBeGreaterThan(400);
+  await expectAnchor(page, revealed);
 
   // Opening the first link again is a new visit: it reveals the message.
   await page.goBack();

@@ -313,6 +313,7 @@ function Timeline({
   // of replaying the link, unless that place can no longer be shown.
   const [lostPlace, setLostPlace] = useState<AbortSignal>();
   const returning =
+    !inlineTarget &&
     !!navigation?.traversal &&
     lostPlace !== navigation.signal &&
     navigation.position(TIMELINE_PLACE) !== undefined;
@@ -670,6 +671,13 @@ function Timeline({
   // Positioning waits for the exact reveal, then must run again: a reveal that
   // leaves the reader at the bottom keeps following late row measurement.
   const [revealedSignal, setRevealedSignal] = useState<AbortSignal>();
+  // The row the last reveal focused; a return may take focus back from it.
+  const revealedRow = useRef<string | undefined>(undefined);
+  // The visit last revealed or returned to. A relay rebind brings it back with
+  // a new signal, and a thread visit leaves it shown; neither moves the reader.
+  const presentedVisit = useRef<{ entryId: string; signal: AbortSignal }>(
+    undefined,
+  );
   const completeTarget = useCallback(() => {
     const element = scroller.current;
     // Only a reveal clamped at the scroll limit follows. A near-bottom reveal
@@ -679,15 +687,30 @@ function Timeline({
       element.scrollHeight - element.clientHeight - element.scrollTop > 1
     )
       follow.current = false;
+    // The reveal's placement is the reader's place even when it moved nothing
+    // and so no scroll event records it.
+    if (element)
+      savedPosition.current = {
+        ...positionAt(element),
+        bottom: follow.current,
+      };
+    revealedRow.current = targetId;
+    if (navigation && targetSignal === navigation.signal)
+      presentedVisit.current = {
+        entryId: navigation.entryId,
+        signal: navigation.signal,
+      };
     navigation?.complete({ status: "opened" });
     setRevealedSignal(targetSignal);
-  }, [navigation, targetSignal]);
+  }, [navigation, targetId, targetSignal]);
+  // A covering Members dialog owns focus.
+  const focusesTarget = !(
+    navigation?.target.kind === "conversation" &&
+    navigation.target.panel === "members"
+  );
   useMessageReveal({
     scroller,
-    focus: !(
-      navigation?.target.kind === "conversation" &&
-      navigation.target.panel === "members"
-    ),
+    focus: focusesTarget,
     settled,
     messageId: targetId,
     signal: targetSignal,
@@ -698,16 +721,22 @@ function Timeline({
     hold: holdTarget,
   });
   // A return restores its visit's place the way an opening restores the
-  // channel's, whether the timeline mounts for it or showed another visit.
-  // When that row is no longer loaded the visit opens as the link first did.
-  const returnedVisit = useRef<AbortSignal | undefined>(undefined);
+  // channel's, whether the timeline mounts for it or showed another visit. The
+  // visit still presented only completes. A place whose row isn't loaded waits
+  // for verified rows (or a failed read), then opens as the link first did.
   useLayoutEffect(() => {
-    if (
-      !navigation ||
-      !returning ||
-      returnedVisit.current === navigation.signal
-    )
+    if (!navigation || navigation.signal.aborted) return;
+    const prior =
+      presentedVisit.current?.entryId === navigation.entryId
+        ? presentedVisit.current
+        : undefined;
+    presentedVisit.current = prior;
+    if (!returning || prior?.signal === navigation.signal) return;
+    if (prior) {
+      presentedVisit.current = { ...prior, signal: navigation.signal };
+      navigation.complete({ status: "opened" });
       return;
+    }
     const place = navigation.position(TIMELINE_PLACE) as ReadingPosition;
     const id = place.anchor?.id ?? "";
     if (
@@ -715,10 +744,14 @@ function Timeline({
       !place.bottom &&
       renderedRowIndex(rows, visibleRows, containedOwners.get(id) ?? id) < 0
     ) {
-      setLostPlace(navigation.signal);
+      if (window.freshness !== "cached" || window.error)
+        setLostPlace(navigation.signal);
       return;
     }
-    returnedVisit.current = navigation.signal;
+    presentedVisit.current = {
+      entryId: navigation.entryId,
+      signal: navigation.signal,
+    };
     intent.current++;
     savedPosition.current = place;
     follow.current = place.bottom;
@@ -728,25 +761,39 @@ function Timeline({
     upwardGesture.current = false;
     settled.current = false;
     navigation.complete({ status: "opened" });
-    // Focus left behind by the opener, or on a row of the place this return
-    // leaves, moves to the restored reading. Focus placed elsewhere stays.
+    // Focus left on the page, or on the row the last reveal focused, moves to
+    // the restored reading. Focus placed anywhere else stays.
     const element = scroller.current;
     const focused = document.activeElement;
     if (
       element &&
+      focusesTarget &&
       navigation.focus !== "preserve" &&
-      (!focused || focused === document.body || element.contains(focused))
+      (!focused ||
+        focused === document.body ||
+        (focused instanceof HTMLElement &&
+          element.contains(focused) &&
+          focused.dataset.messageId === revealedRow.current))
     )
       element.focus({ preventScroll: true });
-  }, [navigation, returning, rows, visibleRows, containedOwners]);
+  }, [
+    navigation,
+    returning,
+    rows,
+    visibleRows,
+    containedOwners,
+    window.freshness,
+    window.error,
+    focusesTarget,
+  ]);
   // Leaving a link's visit once it was presented, revealed or returned to, by
   // navigating on or unmounting, records where the reader was for Back/Forward.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a completed reveal presents the visit.
   useLayoutEffect(() => {
     if (
       navigation?.target.kind !== "conversation" ||
       !navigation.target.messageId ||
-      (returnedVisit.current !== navigation.signal &&
-        revealedSignal !== navigation.signal)
+      presentedVisit.current?.entryId !== navigation.entryId
     )
       return;
     return () => {
