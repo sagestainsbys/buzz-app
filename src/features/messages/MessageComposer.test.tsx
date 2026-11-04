@@ -2078,7 +2078,7 @@ it("pastes text copied together with a picture as text, and attaches a file past
 /** Pastes a TextEdit copy of two paragraphs around a picture as WebKit hands
  * it to the page: the picture is a blob: URL in the HTML and U+FFFC in the
  * text, with no file item. The composer and its editor read the HTML once. Its
- * fetch waits for `picture()`. */
+ * fetch waits for `picture()`, which reads a PNG unless given another result. */
 function pasteTextEditCopy(input: HTMLElement) {
   const src = "blob:http://127.0.0.1:4873/ba90c5a8-7c1e-4d0b-9f2a-3e6d8b1c5f40";
   const read = deferred<Blob>();
@@ -2106,8 +2106,10 @@ function pasteTextEditCopy(input: HTMLElement) {
     ["text/html"],
   ]);
   expect(fetch).toHaveBeenCalledExactlyOnceWith(src);
-  return () =>
-    act(async () => read.resolve(new Blob(["png"], { type: "image/png" })));
+  return (result: Blob | Error = new Blob(["png"], { type: "image/png" })) =>
+    act(async () =>
+      result instanceof Error ? read.reject(result) : read.resolve(result),
+    );
 }
 const textEditText =
   "Lunch budget notes for Q3.\nVenue costs went up twelve percent.\n";
@@ -2126,6 +2128,41 @@ it("pastes rich text with its pictures as text and attaches the pictures WebKit 
   expect(
     within(h.form()).getByRole("button", { name: "Remove Attachment.png" }),
   ).toBeInTheDocument();
+  expect(h.input()).toHaveValue(textEditText);
+});
+
+it("holds Send while a pasted picture is read, so the paste sends as one message", async () => {
+  const h = await mountUploadComposer();
+  const picture = pasteTextEditCopy(h.input());
+  fireEvent.keyDown(h.input(), { key: "Enter" });
+  await act(async () => {});
+  expect(h.input()).toHaveValue(textEditText);
+  expect(h.sign).not.toHaveBeenCalled();
+  expect(h.send()).toBeDisabled();
+  await picture();
+  await waitFor(() => expect(h.send()).toBeEnabled());
+  await waitFor(() => expect(h.uploadCalls).toHaveLength(1));
+  fireEvent.keyDown(h.input(), { key: "Enter" });
+  await act(async () => {
+    h.uploadCalls[0]?.result.resolve(uploadDescriptor("Attachment.png"));
+  });
+  await waitFor(() => expect(h.publish).toHaveBeenCalledOnce());
+  expect(h.sign).toHaveBeenCalledOnce();
+  const content = h.publish.mock.calls[0]?.[0].content;
+  expect(content).toContain("Venue costs went up twelve percent.");
+  expect(content).toContain("[Attachment.png](<");
+});
+
+it.each([
+  ["is not an image", new Blob(["<p>"], { type: "text/html" })],
+  ["cannot be read", new Error("gone")],
+])("releases Send when a pasted picture %s", async (_, result) => {
+  const h = await mountUploadComposer();
+  const picture = pasteTextEditCopy(h.input());
+  expect(h.send()).toBeDisabled();
+  await picture(result);
+  await waitFor(() => expect(h.send()).toBeEnabled());
+  expect(h.uploadCalls).toHaveLength(0);
   expect(h.input()).toHaveValue(textEditText);
 });
 
@@ -2156,10 +2193,14 @@ it("pastes rich text into a message edit and says its pictures cannot attach the
   await userEvent.clear(h.input());
   const picture = pasteTextEditCopy(h.input());
   expect(h.input()).toHaveValue(textEditText);
+  const save = within(h.form()).getByRole("button", { name: "Save changes" });
+  // Its pictures cannot attach to an edit, so Save does not wait for them.
+  expect(save).toBeEnabled();
   await picture();
   expect(
     await screen.findByText("Finish editing before attaching new files."),
   ).toBeInTheDocument();
+  expect(save).toBeEnabled();
   expect(h.uploadCalls).toHaveLength(0);
   expect(
     within(h.form()).queryByRole("button", { name: "Remove Attachment.png" }),

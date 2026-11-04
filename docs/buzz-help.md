@@ -208,7 +208,8 @@ that agent in Buzz; they do not notify the external app through this connection.
   own attaches where uploads are available.
 - **Pasting rich text with pictures** from TextEdit, Notes, Pages or Mail
   inserts the text and, in the macOS app, attaches its pictures where uploads
-  are available. In browsers such as Chrome only the text pastes.
+  are available. Send waits until they attach, so the paste sends as one
+  message. In browsers such as Chrome only the text pastes.
 - **File sharing** is available through **Attach files** in the composer when
   uploads are available. Files and media are shared with the conversation's
   members. If an upload fails, its attachment shows the reason, **Retry**, and

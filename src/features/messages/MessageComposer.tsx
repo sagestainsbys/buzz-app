@@ -1387,6 +1387,10 @@ function Composer({
   const attachLate = useEffectEvent((files: readonly File[]) => {
     if (live.current) attachFiles(files);
   });
+  // Send waits while they are read, as it does for a failed file, so a paste
+  // stays one message. An edit's Save does not: its pictures cannot attach.
+  const [pictureReads, setPictureReads] = useState(0);
+  const attachmentsBlocked = attachments.blocked || pictureReads > 0;
   const outbox = session.outbox;
   const emojiCatalog = useSyncExternalStore(
     session.emoji.subscribe,
@@ -2563,7 +2567,7 @@ function Composer({
       admission.current ||
       submission?.disabled ||
       (!submission && (input.current?.readOnly || input.current?.disabled)) ||
-      attachments.blocked ||
+      attachmentsBlocked ||
       sendPending ||
       sendAttempt.current ||
       !outbox
@@ -3299,7 +3303,12 @@ function Composer({
           if (!files.length) {
             // The editor pastes the text; pictures only in its HTML follow.
             const images = pastedInlineImages(event.clipboardData);
-            if (images.length) void fetchPastedImages(images).then(attachLate);
+            if (images.length) {
+              setPictureReads((count) => count + 1);
+              void fetchPastedImages(images)
+                .then(attachLate)
+                .finally(() => setPictureReads((count) => count - 1));
+            }
             return;
           }
           event.preventDefault();
@@ -3708,7 +3717,7 @@ function Composer({
                 admitting ||
                 sending ||
                 submission?.disabled ||
-                (!editing.target && attachments.blocked) ||
+                (!editing.target && attachmentsBlocked) ||
                 (!draft.trim() &&
                   !chatCards?.length &&
                   ((!!submission && !submission.allowAttachmentOnly) ||
