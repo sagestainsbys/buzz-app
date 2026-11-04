@@ -1641,8 +1641,8 @@ function Composer({
     }
     const kept = keptEdit();
     // A quiet start only resumes this message's kept edit, which may have
-    // ended or been replaced while it waited.
-    if (quiet && kept?.id !== current.id) return true;
+    // ended, been replaced or been kept closed while it waited.
+    if (quiet && (kept?.id !== current.id || !kept.resume)) return true;
     // A kept rewrite of another message opens in its place. One whose message
     // is not here to open, perhaps deleted, is discarded only when Edit is
     // chosen again while that is said.

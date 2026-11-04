@@ -9180,6 +9180,40 @@ it("does not open a message by itself once its kept edit ends while the composer
   expect(waiting.input()).toHaveValue("");
 });
 
+it("keeps a kept edit closed in a waiting composer once a new message elsewhere marks it", () => {
+  const root = "a".repeat(64);
+  const reply = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const thread = {
+    threadRootId: root,
+    editMessages: [reply],
+    threadSeed: reply,
+  };
+  const key = `edit:channel:thread:${root}`;
+  const h = mount(thread, undefined, first.pubkey);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten reply");
+  h.unmount();
+  const waiting = mount(
+    { threadRootId: root, editMessages: [] },
+    undefined,
+    first.pubkey,
+  );
+  const review = mount(
+    { ...thread, resumeEdit: false },
+    undefined,
+    first.pubkey,
+  );
+  review.fill("Comment");
+  expect(readView("scope", key, null)).toMatchObject({ resume: false });
+  waiting.retarget(thread);
+  expect(waiting.input()).toHaveAccessibleName("Reply to thread");
+  expect(waiting.input()).toHaveValue("Comment");
+  waiting.fill("");
+  fireEvent.keyDown(waiting.input(), { key: "ArrowUp" });
+  expect(waiting.input()).toHaveAccessibleName("Edit message");
+  expect(waiting.input()).toHaveValue("Rewritten reply");
+});
+
 it("selects the newest message on Up when the scope has a message list, instead of editing", () => {
   const base = mount({}, undefined, first.pubkey);
   base.unmount();
