@@ -272,3 +272,61 @@ export function pastedFiles(data: DataTransfer | null) {
     ? files
     : [];
 }
+
+/** Pictures a paste carries only in its HTML, with no file item. WebKit
+ * exposes a pasted RTFD's or web archive's pictures, as TextEdit, Notes, Pages
+ * and Mail copy them, as `blob:` URLs of this page; some apps embed `data:`
+ * URLs. Chromium exposes neither, so there the picture does not arrive. Web
+ * addresses are a copied page's own images, never fetched. For a paste whose
+ * `pastedFiles` is empty. */
+export function pastedInlineImages(data: DataTransfer | null) {
+  if (!data?.types?.includes("text/html")) return [];
+  const html = data.getData("text/html");
+  // Most pasted HTML has no such picture; skip parsing it.
+  if (!/blob:|data:image\//i.test(html)) return [];
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const images = new Map<string, string | undefined>();
+  for (const image of parsed.images) {
+    const src = image.getAttribute("src")?.trim() ?? "";
+    // The alt names the picture when it is a file name, as WebKit's is.
+    const alt = image.alt.trim();
+    const name = /^[^\\/\n]+\.[a-z][a-z\d]{1,4}$/i.test(alt) ? alt : undefined;
+    if (/^(?:blob:|data:image\/)/i.test(src) && !images.has(src))
+      images.set(src, name);
+  }
+  return [...images].map(([src, name]) => ({ src, name }));
+}
+
+const pastedImageExtensions: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/tiff": "tiff",
+};
+
+/** The pictures `pastedInlineImages` found, as files in paste order: the
+ * `blob:` URLs WebKit gives a pasted RTFD's or web archive's pictures, and
+ * `data:` URLs (Chromium gives neither). One that cannot be read, or is not an
+ * image, is left out. Unnamed ones are "Pasted image", numbered from the
+ * second. */
+export async function fetchPastedImages(
+  images: readonly { src: string; name?: string | undefined }[],
+): Promise<File[]> {
+  const blobs = await Promise.all(
+    images.map(({ src }) =>
+      fetch(src)
+        .then((response) => response.blob())
+        .then((blob) => (blob.type.startsWith("image/") ? blob : undefined))
+        .catch(() => undefined),
+    ),
+  );
+  let unnamed = 0;
+  return images.flatMap(({ name }, index) => {
+    const blob = blobs[index];
+    if (!blob) return [];
+    const fallback = () =>
+      `Pasted image${++unnamed > 1 ? ` ${unnamed}` : ""}.${pastedImageExtensions[blob.type] ?? "png"}`;
+    return [new File([blob], name ?? fallback(), { type: blob.type })];
+  });
+}

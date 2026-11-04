@@ -1403,6 +1403,24 @@ describe("Mod+Shift+V pastes plain text verbatim", () => {
   });
 });
 
+it.each([
+  ["a paste", paste],
+  ["Paste and Match Style", pasteRaw],
+])(
+  "drops the placeholders pictures leave in rich text from %s",
+  (_path, pasteWith) => {
+    const h = mount();
+    // RTF and RTFD put U+FFFC in the plain text where each picture was.
+    pasteWith(
+      h.input,
+      "Lunch budget notes for Q3.\n\uFFFC\r\n \uFFFC\uFFFC \nVenue \uFFFCcosts went up.\n\n\uFFFC",
+    );
+    expect(h.markdown()).toBe(
+      "Lunch budget notes for Q3.\nVenue costs went up.\n",
+    );
+  },
+);
+
 it("bolds a mention typed between delimiters and keeps its chip and recipient", async () => {
   const h = mount();
   const honey = { pubkey: "a".repeat(64), name: "Honey" };

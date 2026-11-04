@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   buzzCopyDocument,
   composerClipboard,
+  fetchPastedImages,
   pastedFiles,
+  pastedInlineImages,
 } from "./composer-clipboard";
 import { composerSchema } from "./composer-document";
 import { spoilerDelimiter } from "./selection-copy";
@@ -180,6 +182,7 @@ function clipboard(
       kind: "file",
       getAsFile: () => new File([name], name),
     })),
+    types: html ? ["text/plain", "text/html"] : ["text/plain"],
     getData: (type: string) => {
       read.push(type);
       return type === "text/plain" ? text : type === "text/html" ? html : "";
@@ -274,4 +277,77 @@ it.each<[shape: string, names: string[], text: string, html: string]>([
 
 it("attaches nothing without a clipboard", () => {
   expect(pastedFiles(null)).toEqual([]);
+});
+
+it("collects the pictures a rich paste holds as blob: or data: URLs, once each", () => {
+  const read: string[] = [];
+  const blob = "blob:http://127.0.0.1:4873/ba90c5a8";
+  const data = "data:image/png;base64,iVBORw0KGgo=";
+  // WebKit's HTML for a TextEdit copy: a blob: picture between paragraphs.
+  const html = [
+    "<p><span>Lunch budget notes for Q3.</span></p>",
+    `<p><span><img src="${blob}" alt="Attachment.png"></span></p>`,
+    `<p><img src="${data}" alt="Revenue chart"></p>`,
+    `<p><img src="${blob}" alt="Attachment.png"></p>`,
+    '<p><img src="https://example.com/logo.png" alt="logo.png"></p>',
+    '<p><img src="data:text/plain,notes" alt="notes.txt"></p>',
+    "<p><span>Venue costs went up twelve percent.</span></p>",
+  ].join("\n");
+  expect(
+    pastedInlineImages(clipboard([], "Lunch\n\uFFFC\nVenue", html, read)),
+  ).toEqual([
+    { src: blob, name: "Attachment.png" },
+    { src: data, name: undefined },
+  ]);
+  expect(read).toEqual(["text/html"]);
+});
+
+it.each<[shape: string, html?: string]>([
+  [
+    "a copied web page's images",
+    '<p>Our logo</p><img src="https://example.com/logo.png">',
+  ],
+  ["HTML without pictures", "<p>notes</p>"],
+  ["no HTML"],
+])("collects no pictures from %s", (_shape, html) => {
+  expect(pastedInlineImages(clipboard([], "notes", html))).toEqual([]);
+});
+
+it("collects no pictures without a clipboard", () => {
+  expect(pastedInlineImages(null)).toEqual([]);
+});
+
+it("reads pasted pictures in order, names unnamed ones and leaves out unreadable ones", async () => {
+  const blobs: Record<string, Blob> = {
+    "blob:named": new Blob(["a"], { type: "image/png" }),
+    "blob:jpeg": new Blob(["bb"], { type: "image/jpeg" }),
+    "blob:text": new Blob(["c"], { type: "text/plain" }),
+    "data:image/png;base64,AA==": new Blob(["d"], { type: "image/png" }),
+    "blob:icon": new Blob(["e"], { type: "image/x-icon" }),
+  };
+  const fetch = vi.fn(async (src: string) => {
+    const blob = blobs[src];
+    if (!blob) throw new TypeError("Failed to fetch");
+    return { blob: async () => blob } as Response;
+  });
+  vi.stubGlobal("fetch", fetch);
+  try {
+    const files = await fetchPastedImages([
+      { src: "blob:named", name: "Attachment.png" },
+      { src: "blob:revoked" },
+      { src: "blob:jpeg" },
+      { src: "blob:text", name: "notes.png" },
+      { src: "data:image/png;base64,AA==" },
+      { src: "blob:icon" },
+    ]);
+    expect(files.map((file) => [file.name, file.type, file.size])).toEqual([
+      ["Attachment.png", "image/png", 1],
+      ["Pasted image.jpg", "image/jpeg", 2],
+      ["Pasted image 2.png", "image/png", 1],
+      ["Pasted image 3.png", "image/x-icon", 1],
+    ]);
+    expect(fetch).toHaveBeenCalledTimes(6);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

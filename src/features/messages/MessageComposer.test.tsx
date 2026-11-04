@@ -2073,6 +2073,94 @@ it("pastes text copied together with a picture as text, and attaches a file past
   expect(h.input()).toHaveValue(text);
 });
 
+/** Pastes a TextEdit copy of two paragraphs around a picture as WebKit hands
+ * it to the page: the picture is a blob: URL in the HTML and U+FFFC in the
+ * text, with no file item. Its fetch waits for `picture()`. */
+function pasteTextEditCopy(input: HTMLElement) {
+  const src = "blob:http://127.0.0.1:4873/ba90c5a8-7c1e-4d0b-9f2a-3e6d8b1c5f40";
+  const read = deferred<Blob>();
+  const fetch = vi.fn(
+    async (_src: string) => ({ blob: () => read.promise }) as Response,
+  );
+  vi.stubGlobal("fetch", fetch);
+  const flavors: Record<string, string> = {
+    "text/plain":
+      "Lunch budget notes for Q3.\n\uFFFC\nVenue costs went up twelve percent.\n",
+    "text/html": `<p><span>Lunch budget notes for Q3.</span></p>\n<p><span><img src="${src}" alt="Attachment.png"></span></p>\n<p><span>Venue costs went up twelve percent.</span></p><br class="Apple-interchange-newline">`,
+  };
+  act(() => {
+    input.focus();
+    fireEvent.paste(input, {
+      clipboardData: {
+        items: [],
+        types: ["text/html", "text/plain"],
+        getData: (type: string) => flavors[type] ?? "",
+      },
+    });
+  });
+  expect(fetch).toHaveBeenCalledExactlyOnceWith(src);
+  return () =>
+    act(async () => read.resolve(new Blob(["png"], { type: "image/png" })));
+}
+const textEditText =
+  "Lunch budget notes for Q3.\nVenue costs went up twelve percent.\n";
+
+it("pastes rich text with its pictures as text and attaches the pictures WebKit hands over", async () => {
+  const h = await mountUploadComposer();
+  const picture = pasteTextEditCopy(h.input());
+  expect(h.input()).toHaveValue(textEditText);
+  expect(h.uploadCalls).toHaveLength(0);
+  await picture();
+  await waitFor(() => expect(h.uploadCalls).toHaveLength(1));
+  expect(h.uploadCalls[0]?.file).toMatchObject({
+    name: "Attachment.png",
+    type: "image/png",
+  });
+  expect(
+    within(h.form()).getByRole("button", { name: "Remove Attachment.png" }),
+  ).toBeInTheDocument();
+  expect(h.input()).toHaveValue(textEditText);
+});
+
+it("attaches no pasted picture that arrives after the composer unmounts", async () => {
+  const h = await mountUploadComposer();
+  const picture = pasteTextEditCopy(h.input());
+  h.unmount();
+  await picture();
+  await act(async () => {});
+  expect(h.uploadCalls).toHaveLength(0);
+});
+
+it("pastes rich text into a message edit and says its pictures cannot attach there", async () => {
+  const h = await mountUploadComposer({ editable: true });
+  const viewer = h.owner.session.viewer;
+  if (!viewer) throw new Error("Expected upload viewer");
+  h.rerender(
+    <MessageComposer
+      session={h.owner.session}
+      scope={h.scope}
+      channelId="channel"
+      channelName="General"
+      editMessages={[editableMessage({ authorId: viewer })]}
+    />,
+  );
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  await userEvent.clear(h.input());
+  const picture = pasteTextEditCopy(h.input());
+  expect(h.input()).toHaveValue(textEditText);
+  await picture();
+  expect(
+    await screen.findByText("Finish editing before attaching new files."),
+  ).toBeInTheDocument();
+  expect(h.uploadCalls).toHaveLength(0);
+  expect(
+    within(h.form()).queryByRole("button", { name: "Remove Attachment.png" }),
+  ).toBeNull();
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue(textEditText);
+});
+
 it("pauses while disabled and resumes attachment Send without Retry when re-enabled", async () => {
   const h = await mountUploadComposer();
   fireEvent.change(h.input(), { target: { value: "Keep my files" } });

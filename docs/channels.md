@@ -1437,7 +1437,11 @@ over the selection with the caret's formatting: no copied blocks, formatting or 
 selection and no recipients. It is ⌘⇧V or Edit → Paste and Match Style in the macOS app, ⌥⇧⌘V in
 macOS browsers and Ctrl+Shift+V elsewhere. Text copied together with a picture, as spreadsheet,
 word-processor and presentation apps copy it, pastes as text either way and attaches nothing; a
-picture or file copied on its own, even with its name or web address, attaches instead.
+picture or file copied on its own, even with its name or web address, attaches instead. Rich
+text copied with its own pictures, as TextEdit, Notes, Pages and Mail copy it, pastes its text
+and, in the macOS app, attaches those pictures too; browsers such as Chrome do not give the page
+those pictures, so there only the text pastes. The placeholder character such apps leave in the
+text where each picture was is dropped.
 A copied spoiler stays a spoiler whether or not it was revealed, and
 keeps its `||` delimiters elsewhere. Headings, task checkboxes and horizontal rules, which the
 composer has no block for, paste as their Markdown source (`# `, `[ ]`/`[x]`, `***`) so they still

@@ -132,6 +132,22 @@ function controlCharacterText(text: string | null | undefined) {
     !text.replace(CONTROL_CHARACTERS, "")
   );
 }
+/** RTF and RTFD attachments leave U+FFFC OBJECT REPLACEMENT CHARACTER in a
+ * paste's plain text where each picture was. A line of nothing else goes with
+ * its line break; elsewhere the character alone goes. */
+function withoutAttachmentPlaceholders(text: string) {
+  if (!text.includes("\uFFFC")) return text;
+  const parts = text.split(/(\r\n?|\n)/);
+  const kept: string[] = [];
+  for (let index = 0; index < parts.length; index += 2) {
+    const line = parts[index] ?? "";
+    if (!/^\s*\uFFFC[\s\uFFFC]*$/.test(line))
+      kept.push(line.replaceAll("\uFFFC", ""), parts[index + 1] ?? "");
+    // The last line's break is the one before it.
+    else if (index === parts.length - 1) kept.pop();
+  }
+  return kept.join("");
+}
 /** Caret keys by physical code and by legacy key code, the two identities WebKit
  * still derives from the hardware key when it reports a layout translation as
  * `key`. Pressing such a key must move the caret, not type the character. */
@@ -2137,7 +2153,9 @@ export function EditableInput({
             plainPaste = false;
             // File paste belongs to the host attachment capture; never replace text.
             if (pastedFiles(event.clipboardData).length) return true;
-            const plain = event.clipboardData?.getData("text/plain") ?? "";
+            const plain = withoutAttachmentPlaceholders(
+              event.clipboardData?.getData("text/plain") ?? "",
+            );
             // Raw text replaces the selection with the caret's marks: no copied
             // structure, links, selection linking, URL spacing or recipients.
             if (raw) {

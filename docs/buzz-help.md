@@ -206,6 +206,9 @@ that agent in Buzz; they do not notify the external app through this connection.
 - **Pasting from Excel, Numbers, Word or Keynote** inserts the copied text, even
   though those apps also copy a picture of it. A picture or file copied on its
   own attaches where uploads are available.
+- **Pasting rich text with pictures** from TextEdit, Notes, Pages or Mail
+  inserts the text and, in the macOS app, attaches its pictures where uploads
+  are available. In browsers such as Chrome only the text pastes.
 - **File sharing** is available through **Attach files** in the composer when
   uploads are available. Files and media are shared with the conversation's
   members. If an upload fails, its attachment shows the reason, **Retry**, and
