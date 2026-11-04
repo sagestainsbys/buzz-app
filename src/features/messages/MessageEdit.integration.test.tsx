@@ -351,6 +351,64 @@ it.each(["image", "video"] as const)(
   },
 );
 
+it("image review leaves a thread's kept edit closed until Edit is chosen there", async () => {
+  const viewer = keypair();
+  const url = "https://fixture.test/kept.png";
+  const root = message(viewer, "channel", "Own media root", 10, [
+    ["imeta", `url ${url}`, "m image/png"],
+  ]);
+  const reply = message(viewer, "channel", "Own reply", 11, [
+    ["e", root.id, "", "reply"],
+  ]);
+  const owner = editOwner(viewer, [root, reply]);
+  try {
+    await authorize(owner);
+    const shared = {
+      session: owner.session,
+      scope: "kept-review-edit",
+      channelId: "channel",
+      channelName: "General",
+      close: () => {},
+      onOpenLink: () => false,
+    };
+    const thread = render(<ThreadPanel {...shared} messageId={root.id} />, {
+      reactStrictMode: true,
+    });
+    await screen.findByText("Own reply");
+    const input = screen.getByRole<ComposerInputElement>("textbox", {
+      name: "Reply to thread",
+    });
+    fireEvent.keyDown(input, { key: "ArrowUp", metaKey: true });
+    act(() => {
+      input.value = "Rewritten reply";
+      input.setSelectionRange(15, 15);
+    });
+    fireEvent.input(input);
+    thread.unmount();
+    render(
+      <MediaReviewViewer
+        {...shared}
+        messageId={root.id}
+        attachment={{ url, kind: "image" }}
+        initialTime={0}
+      />,
+      { reactStrictMode: true },
+    );
+    // The loaded reply is the barrier: a quiet resume would open it then.
+    await screen.findByText("Own reply");
+    const comment = screen.getByRole<ComposerInputElement>("textbox", {
+      name: "Reply to thread",
+    });
+    expect(comment).toHaveValue("");
+    fireEvent.keyDown(comment, { key: "ArrowUp" });
+    expect(comment).toHaveAccessibleName("Edit message");
+    expect(comment).toHaveValue("Rewritten reply");
+  } finally {
+    cleanup();
+    owner.dispose();
+  }
+});
+
 it.each(["reject", "commit"] as const)(
   "keeps the edit open until delayed Outbox dismissal can %s",
   async (outcome) => {

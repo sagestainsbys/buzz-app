@@ -497,6 +497,8 @@ function ReviewShell({
                     channelName={channelName}
                     threadRootId={rootId}
                     editMessages={editMessages}
+                    // A review never opens an edit you didn't choose here.
+                    resumeEdit={false}
                     {...(attachment.kind === "video" && includeTime
                       ? { mediaTimeSeconds: currentTime }
                       : {})}

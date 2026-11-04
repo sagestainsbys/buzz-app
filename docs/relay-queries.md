@@ -688,7 +688,9 @@ Escape or × cancels. Edits retain raw attachment Markdown and leave original
 notification recipients unchanged. Edit text never overwrites the new-message
 draft or its undo history. An unsaved edit is kept separately, one per
 conversation or thread and outside Drafts, and reopens when its composer returns
-and the message loads, until Save or Cancel. Pending edits lock the editor until
+and the message loads, until Save or Cancel. It does not reopen in a media
+review's composer, or while another composer in the window has it open; choosing
+Edit there resumes it. Pending edits lock the editor until
 delivery; failed or unknown outcomes offer retry of the same outbox event.
 Missing or concurrently changed targets are rejected without losing the user's
 input.
