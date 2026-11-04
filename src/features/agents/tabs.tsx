@@ -102,14 +102,14 @@ export function agentSections({
       label: "Settings",
       render: () => <HostSettings host={settingsHost} />,
     });
-  if (agent.place === "here")
-    for (const { key, title, component: Component, when } of agents.addedTabs())
-      if (!when || shows(when, agent, key))
-        tabs.push({
-          value: `agent:added:${key}`,
-          label: title,
-          render: () => <Component agent={agent} />,
-        });
+  // A tab for local agents only says so in its `when`.
+  for (const { key, title, component: Component, when } of agents.addedTabs())
+    if (!when || shows(when, agent, key))
+      tabs.push({
+        value: `agent:added:${key}`,
+        label: title,
+        render: () => <Component agent={agent} />,
+      });
   if (agent.place === "here" && agents.configHistory(agent.pubkey))
     tabs.push({
       value: "agent:history",
