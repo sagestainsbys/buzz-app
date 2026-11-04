@@ -13,6 +13,8 @@ import { createRelaySession } from "../relay/session";
 import type { ChannelWindow } from "../relay/contracts";
 import { keypair, message, scriptedTransport } from "../relay/testing";
 import { readView, writeView } from "../../shared/view-state";
+import type { PageNavigation } from "../navigation/service";
+import type { JsonValue } from "../navigation/targets";
 
 // Real React lifecycle; only the virtualizer's imperative layout boundary is
 // modeled here. Browser journeys retain the actual same-message/4px contract.
@@ -89,6 +91,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
 });
 async function frame() {
   await act(async () => {
@@ -1556,3 +1559,196 @@ it.each([false, true])(
       expect(screen.getByText("Saved work step")).not.toBeNull();
   },
 );
+
+/** Link visits as navigation keeps them: a visit's place outlives each presentation. */
+function linkVisits() {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+  // Rows are on screen, so a reveal can complete.
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 800, 100),
+  );
+  const viewer = keypair(),
+    relay = keypair();
+  const owner = createRelaySession(
+    scriptedTransport(viewer.pubkey, relay.pubkey).transport,
+  );
+  owners.push(owner);
+  const rows = ["Linked message", "Reading place", "Latest message"].map(
+    (content, index) => {
+      const event = message(viewer, "c", content, index);
+      return {
+        id: event.id,
+        channelId: "c",
+        authorId: viewer.pubkey,
+        content,
+        createdAt: index,
+        mentions: [],
+        participants: [],
+        attachments: [],
+        reactions: [],
+        replyCount: 0,
+      };
+    },
+  );
+  const [linked, place, latest] = rows;
+  if (!linked || !place || !latest) throw new Error("Missing fixture rows");
+  const window: ChannelWindow = {
+    channelId: "c",
+    status: "ready",
+    freshness: "verified",
+    hasMore: false,
+    loadingOlder: false,
+    error: undefined,
+    rows,
+  };
+  const places = new Map<string, JsonValue>();
+  const visit = (entryId: string, messageId: string, traversal?: true) =>
+    ({
+      entryId,
+      target: {
+        version: 1,
+        kind: "conversation",
+        channelId: "c",
+        messageId,
+        scope: { viewer: viewer.pubkey, communityOrigin: "https://c.invalid" },
+      },
+      signal: new AbortController().signal,
+      ...(traversal && { traversal }),
+      complete: vi.fn<PageNavigation["complete"]>(() => true),
+      resolve: vi.fn(() => true),
+      forSession: vi.fn<PageNavigation["forSession"]>(),
+      position: (key: string) => places.get(`${entryId}:${key}`),
+      savePosition(key: string, value: JsonValue) {
+        places.set(`${entryId}:${key}`, value);
+      },
+    }) satisfies PageNavigation;
+  const tree = (navigation?: PageNavigation) => (
+    <StrictMode>
+      <ChannelTimeline
+        channelId="c"
+        scope="scope"
+        queries={owner.session}
+        window={window}
+        navigation={navigation}
+        onOpenLink={() => false}
+      />
+    </StrictMode>
+  );
+  const result = render(tree());
+  const history = screen.getByRole("region", {
+    name: "Channel message history",
+  });
+  return {
+    linked,
+    place,
+    latest,
+    places,
+    visit,
+    history,
+    /** The reader's place: the "Reading place" row 42 px below the top. */
+    saved: { bottom: false, anchor: { id: place.id, y: 42 } },
+    row: (id: string) =>
+      history.querySelector<HTMLElement>(`[data-message-id="${id}"]`),
+    show(navigation?: PageNavigation) {
+      result.rerender(tree(navigation));
+    },
+    unmount: result.unmount,
+    /** Run frames until a reveal or restoration has finished. */
+    async settle() {
+      for (let i = 0; i < 6; i++) await frame();
+    },
+  };
+}
+
+it("Back to a link's visit returns to where the reader left it, without revealing the link", async () => {
+  const h = linkVisits();
+  h.places.set("link:timeline", h.saved);
+  const back = h.visit("link", h.linked.id, true);
+  h.show(back);
+  await h.settle();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, {
+    align: "start",
+    offset: -42,
+  });
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(document.activeElement).not.toBe(h.row(h.linked.id));
+  // Nothing else completes a link's visit once its reveal is skipped.
+  expect(back.complete).toHaveBeenCalledWith({ status: "opened" });
+  // Focus the opener left behind moves to the restored reading.
+  expect(document.activeElement).toBe(h.history);
+});
+
+it("a mounted timeline records a link's place as the reader leaves it, and Back returns there", async () => {
+  const h = linkVisits();
+  const first = h.visit("first", h.linked.id);
+  h.show(first);
+  await h.settle();
+  expect(document.activeElement).toBe(h.row(h.linked.id));
+  expect(first.complete).toHaveBeenCalledWith({ status: "opened" });
+  // The reader scrolls on until "Reading place" is the first whole row.
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: HTMLElement) {
+      const id =
+        this.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      if (!id) return new DOMRect(0, 0, 800, 600);
+      const top = { [h.linked.id]: -200, [h.place.id]: 42 }[id] ?? 300;
+      return new DOMRect(0, top, 800, 100);
+    },
+  );
+  h.history.scrollTop = 500;
+  fireEvent.scroll(h.history);
+  expect(h.places.has("first:timeline")).toBe(false);
+  // Following another link in the same channel leaves the first visit.
+  const second = h.visit("second", h.latest.id);
+  h.show(second);
+  expect(h.places.get("first:timeline")).toEqual(h.saved);
+  await h.settle();
+  expect(document.activeElement).toBe(h.row(h.latest.id));
+  scroll.toIndex.mockClear();
+  vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+  const back = h.visit("first", h.linked.id, true);
+  h.show(back);
+  expect(h.places.has("second:timeline")).toBe(true);
+  await h.settle();
+  expect(scroll.toIndex).toHaveBeenLastCalledWith(1, {
+    align: "start",
+    offset: -42,
+  });
+  expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(back.complete).toHaveBeenCalledWith({ status: "opened" });
+  // Focus on the row the second link revealed moves to the restored reading.
+  expect(document.activeElement).toBe(h.history);
+});
+
+it.each([
+  ["Back to a place no longer loaded", "gone", true],
+  ["An opening that isn't Back/Forward, such as Retry", undefined, undefined],
+] as const)("%s reveals the link again", async (_, anchor, traversal) => {
+  const h = linkVisits();
+  h.places.set("link:timeline", {
+    bottom: false,
+    anchor: { id: anchor ?? h.place.id, y: 42 },
+  });
+  const navigation = h.visit("link", h.linked.id, traversal);
+  h.show(navigation);
+  await h.settle();
+  const row = h.row(h.linked.id);
+  expect(document.activeElement).toBe(row);
+  expect(
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mock.contexts,
+  ).toContain(row);
+  expect(navigation.complete).toHaveBeenCalledWith({ status: "opened" });
+});
+
+it("records a link's place only once its visit was presented", async () => {
+  const h = linkVisits();
+  await h.settle();
+  // The reader has a place in the channel before following a link.
+  fireEvent.scroll(h.history);
+  // A link to a message not loaded: its reveal never runs.
+  h.show(h.visit("pending", "f".repeat(64)));
+  await h.settle();
+  h.show(h.visit("next", h.latest.id));
+  h.unmount();
+  expect(h.places.has("pending:timeline")).toBe(false);
+});

@@ -98,6 +98,7 @@ type ReadingPosition = {
   bottom: boolean;
   anchor?: { id: string; y: number };
 };
+const TIMELINE_PLACE = "timeline";
 function positionAt(
   element: HTMLElement,
   restoredAnchor?: string,
@@ -308,9 +309,16 @@ function Timeline({
     undefined,
     false,
   );
+  // Back/Forward to a link's visit returns to where the reader left it instead
+  // of replaying the link, unless that place can no longer be shown.
+  const [lostPlace, setLostPlace] = useState<AbortSignal>();
+  const returning =
+    !!navigation?.traversal &&
+    lostPlace !== navigation.signal &&
+    navigation.position(TIMELINE_PLACE) !== undefined;
   const targetId =
     inlineTarget?.messageId ??
-    (navigation?.target.kind === "conversation"
+    (navigation?.target.kind === "conversation" && !returning
       ? navigation.target.messageId
       : undefined);
   // Activity updates rebuild the hidden-row filter without changing its
@@ -689,6 +697,63 @@ function Timeline({
     complete: completeTarget,
     hold: holdTarget,
   });
+  // A return restores its visit's place the way an opening restores the
+  // channel's, whether the timeline mounts for it or showed another visit.
+  // When that row is no longer loaded the visit opens as the link first did.
+  const returnedVisit = useRef<AbortSignal | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (
+      !navigation ||
+      !returning ||
+      returnedVisit.current === navigation.signal
+    )
+      return;
+    const place = navigation.position(TIMELINE_PLACE) as ReadingPosition;
+    const id = place.anchor?.id ?? "";
+    if (
+      place.anchor &&
+      !place.bottom &&
+      renderedRowIndex(rows, visibleRows, containedOwners.get(id) ?? id) < 0
+    ) {
+      setLostPlace(navigation.signal);
+      return;
+    }
+    returnedVisit.current = navigation.signal;
+    intent.current++;
+    savedPosition.current = place;
+    follow.current = place.bottom;
+    restoredAnchor.current = undefined;
+    measuredPosition.current = null;
+    userScrolled.current = false;
+    upwardGesture.current = false;
+    settled.current = false;
+    navigation.complete({ status: "opened" });
+    // Focus left behind by the opener, or on a row of the place this return
+    // leaves, moves to the restored reading. Focus placed elsewhere stays.
+    const element = scroller.current;
+    const focused = document.activeElement;
+    if (
+      element &&
+      navigation.focus !== "preserve" &&
+      (!focused || focused === document.body || element.contains(focused))
+    )
+      element.focus({ preventScroll: true });
+  }, [navigation, returning, rows, visibleRows, containedOwners]);
+  // Leaving a link's visit once it was presented, revealed or returned to, by
+  // navigating on or unmounting, records where the reader was for Back/Forward.
+  useLayoutEffect(() => {
+    if (
+      navigation?.target.kind !== "conversation" ||
+      !navigation.target.messageId ||
+      (returnedVisit.current !== navigation.signal &&
+        revealedSignal !== navigation.signal)
+    )
+      return;
+    return () => {
+      if (savedPosition.current)
+        navigation.savePosition(TIMELINE_PLACE, savedPosition.current);
+    };
+  }, [navigation, revealedSignal]);
   // A pending saved row is the reader's place: following the latest message
   // until it loads is not catching up past it.
   const restoring = useCallback(
