@@ -256,11 +256,16 @@ export function pastedFiles(data: DataTransfer | null) {
     .map((item) => item.getAsFile())
     .filter((file): file is File => file !== null);
   const names = new Set(files.map((file) => file.name));
-  const text = (data?.getData("text/plain") ?? "")
+  const lines = (data?.getData("text/plain") ?? "")
     .split(/\r\n?|\n/)
     .map((line) => line.trim())
-    .filter(Boolean);
-  return text.every((line) => names.has(line) || /^https?:\/\/\S+$/.test(line))
+    .filter((line) => line && !names.has(line));
+  if (!lines.length) return files;
+  // A browser's Copy Image adds the URL beside at most an <img> as HTML; an
+  // Excel cell or Word paragraph holding only a link has the link as HTML text.
+  const html = data?.getData("text/html") ?? "";
+  return lines.every((line) => /^https?:\/\/\S+$/.test(line)) &&
+    !new DOMParser().parseFromString(html, "text/html").body.textContent?.trim()
     ? files
     : [];
 }

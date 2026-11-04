@@ -169,7 +169,15 @@ it("reads crafted HTML whose anchors have no text as an empty paste, not an erro
   });
 });
 
-it.each([
+it.each<
+  [
+    shape: string,
+    expected: string[],
+    names: string[],
+    text: string,
+    html?: string,
+  ]
+>([
   ["a picture alone", ["image.png"], ["image.png"], ""],
   ["a picture with blank text", ["image.png"], ["image.png"], " \n\t"],
   [
@@ -185,10 +193,24 @@ it.each([
     "image.png\r\nreport.pdf\r",
   ],
   [
-    "a copied image with its URL",
+    "a picture with its URL and no HTML",
     ["image.png"],
     ["image.png"],
     "https://example.com/media/image.png",
+  ],
+  [
+    "a browser's Copy Image",
+    ["image.png"],
+    ["image.png"],
+    "https://example.com/media/image.png",
+    '<meta charset="utf-8"><img src="https://example.com/media/image.png">',
+  ],
+  [
+    "a link-only cell and a picture from Excel",
+    [],
+    ["image.png"],
+    "https://example.com/",
+    '<table><tr><td><a href="https://example.com/">https://example.com/</a></td></tr></table>',
   ],
   [
     "text and a picture from Excel",
@@ -204,13 +226,14 @@ it.each([
     "See https://example.com/",
   ],
   ["text alone", [], [], "notes"],
-] as const)("%s attaches %j", (_shape, expected, names, text) => {
+])("%s attaches %j", (_shape, expected, names, text, html = "") => {
   const data = {
     items: names.map((name) => ({
       kind: "file",
       getAsFile: () => new File([name], name),
     })),
-    getData: (type: string) => (type === "text/plain" ? text : ""),
+    getData: (type: string) =>
+      type === "text/plain" ? text : type === "text/html" ? html : "",
   } as unknown as DataTransfer;
   expect(pastedFiles(data).map((file) => file.name)).toEqual(expected);
 });
