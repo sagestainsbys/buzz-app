@@ -232,11 +232,16 @@ test("Back between two links in one channel returns to the reader's place; the s
   await expect(history(page)).toBeFocused();
   await expectAnchor(page, revealed);
 
-  // Opening the first link again is a new visit: it reveals the message.
+  // Following the first link while Back shows its visit opens that same visit
+  // again, and a same-target opening reveals the message.
   await page.goBack();
   await opened(page);
   await settle(page);
   expect(await gap(page)).toBeLessThan(4);
+  const entry = () =>
+    page.evaluate(() => window.fixtureNavigation.snapshot().entry.id);
+  const returned = await entry();
   await follow(page, link(0));
   await expectRevealed(page, first.id);
+  expect(await entry()).toBe(returned);
 });

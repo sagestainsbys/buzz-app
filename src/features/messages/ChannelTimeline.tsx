@@ -678,6 +678,12 @@ function Timeline({
   const presentedVisit = useRef<{ entryId: string; signal: AbortSignal }>(
     undefined,
   );
+  // The attempt that presented it; leaving records that visit's place.
+  const [presented, setPresented] = useState<AbortSignal>();
+  const present = useCallback((visit: PageNavigation) => {
+    presentedVisit.current = { entryId: visit.entryId, signal: visit.signal };
+    setPresented(visit.signal);
+  }, []);
   const completeTarget = useCallback(() => {
     const element = scroller.current;
     // Only a reveal clamped at the scroll limit follows. A near-bottom reveal
@@ -695,14 +701,10 @@ function Timeline({
         bottom: follow.current,
       };
     revealedRow.current = targetId;
-    if (navigation && targetSignal === navigation.signal)
-      presentedVisit.current = {
-        entryId: navigation.entryId,
-        signal: navigation.signal,
-      };
+    if (navigation && targetSignal === navigation.signal) present(navigation);
     navigation?.complete({ status: "opened" });
     setRevealedSignal(targetSignal);
-  }, [navigation, targetId, targetSignal]);
+  }, [navigation, targetId, targetSignal, present]);
   // A covering Members dialog owns focus.
   const focusesTarget = !(
     navigation?.target.kind === "conversation" &&
@@ -722,18 +724,16 @@ function Timeline({
   });
   // A return restores its visit's place the way an opening restores the
   // channel's, whether the timeline mounts for it or showed another visit. The
-  // visit still presented only completes. A place whose row isn't loaded waits
-  // for verified rows (or a failed read), then opens as the link first did.
+  // visit still presented only completes. A place whose row isn't loaded opens
+  // as the link first did.
   useLayoutEffect(() => {
     if (!navigation || navigation.signal.aborted) return;
-    const prior =
-      presentedVisit.current?.entryId === navigation.entryId
-        ? presentedVisit.current
-        : undefined;
-    presentedVisit.current = prior;
+    if (presentedVisit.current?.entryId !== navigation.entryId)
+      presentedVisit.current = undefined;
+    const prior = presentedVisit.current;
     if (!returning || prior?.signal === navigation.signal) return;
     if (prior) {
-      presentedVisit.current = { ...prior, signal: navigation.signal };
+      present(navigation);
       navigation.complete({ status: "opened" });
       return;
     }
@@ -744,14 +744,17 @@ function Timeline({
       !place.bottom &&
       renderedRowIndex(rows, visibleRows, containedOwners.get(id) ?? id) < 0
     ) {
-      if (window.freshness !== "cached" || window.error)
-        setLostPlace(navigation.signal);
+      setLostPlace(navigation.signal);
       return;
     }
-    presentedVisit.current = {
-      entryId: navigation.entryId,
-      signal: navigation.signal,
-    };
+    present(navigation);
+    // A place inside agent activity opens its group, as an opening's place does.
+    const steps =
+      place.anchor && !place.bottom
+        ? activity.find((group) => group.ids.includes(id))?.ids
+        : undefined;
+    if (steps)
+      setExpandedActivity((expanded) => new Set([...expanded, ...steps]));
     intent.current++;
     savedPosition.current = place;
     follow.current = place.bottom;
@@ -772,6 +775,7 @@ function Timeline({
       (!focused ||
         focused === document.body ||
         (focused instanceof HTMLElement &&
+          revealedRow.current !== undefined &&
           element.contains(focused) &&
           focused.dataset.messageId === revealedRow.current))
     )
@@ -782,25 +786,24 @@ function Timeline({
     rows,
     visibleRows,
     containedOwners,
-    window.freshness,
-    window.error,
+    activity,
     focusesTarget,
+    present,
   ]);
   // Leaving a link's visit once it was presented, revealed or returned to, by
   // navigating on or unmounting, records where the reader was for Back/Forward.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: a completed reveal presents the visit.
   useLayoutEffect(() => {
     if (
       navigation?.target.kind !== "conversation" ||
       !navigation.target.messageId ||
-      presentedVisit.current?.entryId !== navigation.entryId
+      presented !== navigation.signal
     )
       return;
     return () => {
       if (savedPosition.current)
         navigation.savePosition(TIMELINE_PLACE, savedPosition.current);
     };
-  }, [navigation, revealedSignal]);
+  }, [navigation, presented]);
   // A pending saved row is the reader's place: following the latest message
   // until it loads is not catching up past it.
   const restoring = useCallback(

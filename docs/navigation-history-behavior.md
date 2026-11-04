@@ -24,10 +24,9 @@ thread can briefly show its end before it returns to that place.
 The same rule covers message links that open in the channel timeline rather
 than in a thread: Back/Forward returns the timeline to where the reader left
 it, whether it comes from another channel or from another link in the same
-channel. Whether that place is still loaded is decided against current rows,
-not cached ones. Following the link again, Retry and opening the visit already
-shown are fresh openings and reveal the message. The place Back returns to is
-also where a later plain visit to that channel opens.
+channel. Following the link again, Retry and opening the visit already shown
+are fresh openings and reveal the message. The place Back returns to is also
+where a later plain visit to that channel opens.
 
 Profiles and GitHub use the same rule. Their read-only target and optional
 thread context are carried as `detail` in the scoped conversation address;
