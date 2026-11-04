@@ -217,7 +217,8 @@ that agent in Buzz; they do not notify the external app through this connection.
   support for every file type or size.
 - **Editing a message** keeps your unsaved changes when you switch channels,
   close the thread or restart Buzz, and the edit reopens when you come back.
-  An image or video review's comments do not reopen it. If it does not reopen,
+  If you start a new message before it reopens, it stays closed, and an image
+  or video review's comments do not reopen it. If it does not reopen,
   choose **Edit message** on that message again. That also moves the edit out of
   another composer that has it open, such as the thread under a review. Save or
   Cancel ends it.

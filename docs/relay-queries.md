@@ -688,7 +688,9 @@ Escape or × cancels. Edits retain raw attachment Markdown and leave original
 notification recipients unchanged. Edit text never overwrites the new-message
 draft or its undo history. An unsaved edit is kept separately, one per
 conversation or thread and outside Drafts, and reopens when its composer returns
-and the message loads, until Save or Cancel. It does not reopen in a media
+and the message loads, until Save or Cancel. If a restored channel head lacks the
+message, it waits for the revalidated head. A new-message draft written while no
+composer has the edit open keeps it closed until Edit is chosen. It does not reopen in a media
 review's composer, or while another composer in the window has it open; choosing
 Edit there resumes it and returns the other composer to its draft. While another
 composer has a different message's edit open there, choosing Edit asks to finish

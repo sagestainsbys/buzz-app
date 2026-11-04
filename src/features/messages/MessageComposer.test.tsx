@@ -278,6 +278,7 @@ function mount(
   let pending: readonly OutgoingEvent[] = [];
   let rows: readonly ChannelMessage[] = [];
   let history: "idle" | "loading" | "ready" = "ready";
+  let freshness: "cached" | "verified" | undefined;
   const rowListeners = new Set<() => void>();
   const setPending = (next: readonly OutgoingEvent[]) => {
     pending = next;
@@ -386,7 +387,7 @@ function mount(
       ),
     },
     channels: {
-      window: () => ({ rows, status: history }),
+      window: () => ({ rows, status: history, freshness }),
       subscribeWindow(_id: string, listener: () => void) {
         rowListeners.add(listener);
         return () => rowListeners.delete(listener);
@@ -487,9 +488,10 @@ function mount(
         for (const listener of rowListeners) listener();
       });
     },
-    setHistory(next: typeof history) {
+    setHistory(next: typeof history, fresh?: typeof freshness) {
       act(() => {
         history = next;
+        freshness = fresh;
         for (const listener of rowListeners) listener();
       });
     },
@@ -8745,6 +8747,46 @@ it("reopens a kept edit once its message loads after the composer mounts", () =>
   expect(h.input()).toHaveValue("Rewritten message");
 });
 
+it("waits past a cached head without its message for refreshed history to reopen a kept edit", () => {
+  const h = leaveUnsavedEdit();
+  // As after a reload whose saved head predates the message.
+  h.setRows([]);
+  h.setHistory("ready", "cached");
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+  h.setRows([editableMessage()]);
+  h.setHistory("ready", "verified");
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("Rewritten message");
+});
+
+it("keeps a kept edit closed on later returns once a new message is started first, until Edit is chosen", () => {
+  const h = leaveUnsavedEdit();
+  const kept = readView<object>("scope", "edit:channel", {});
+  h.setRows([]);
+  h.setHistory("loading");
+  h.retarget({ channelId: "channel" });
+  h.fill("New message");
+  expect(readView("scope", "edit:channel", null)).toEqual({
+    ...kept,
+    resume: false,
+  });
+  h.setRows([editableMessage()]);
+  h.setHistory("ready");
+  h.retarget({ channelId: "other" });
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).not.toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("New message");
+  // Chosen again, the rewrite resumes and reopens on the next return.
+  h.fill("");
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  expect(h.input()).toHaveValue("Rewritten message");
+  h.retarget({ channelId: "other" });
+  h.retarget({ channelId: "channel" });
+  expect(h.input()).toHaveAccessibleName("Edit message");
+  expect(h.input()).toHaveValue("Rewritten message");
+});
+
 it.each(["loads without its message", "has a new draft first"])(
   "stops waiting to reopen a kept edit when the channel %s, until Edit is chosen",
   (cause) => {
@@ -8865,6 +8907,27 @@ it("leaves a kept edit closed while another composer in this window has it open"
   const again = mount(thread, undefined, first.pubkey);
   expect(again.input()).toHaveAccessibleName("Edit message");
   expect(again.input()).toHaveValue("Rewritten elsewhere");
+});
+
+it("reopens a kept edit by itself after a new message is started while another composer had it open", () => {
+  const root = "a".repeat(64);
+  const reply = editableMessage({ id: "b".repeat(64), threadRootId: root });
+  const thread = {
+    threadRootId: root,
+    editMessages: [reply],
+    threadSeed: reply,
+  };
+  const h = mount(thread, undefined, first.pubkey);
+  fireEvent.keyDown(h.input(), { key: "ArrowUp" });
+  h.fill("Rewritten reply");
+  const other = mount(thread, undefined, first.pubkey);
+  other.fill("New reply");
+  expect(h.input()).toHaveValue("Rewritten reply");
+  other.unmount();
+  h.unmount();
+  const again = mount(thread, undefined, first.pubkey);
+  expect(again.input()).toHaveAccessibleName("Edit message");
+  expect(again.input()).toHaveValue("Rewritten reply");
 });
 
 it("refuses to edit another message while another composer has an edit open on its key", () => {
