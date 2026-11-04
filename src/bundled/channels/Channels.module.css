@@ -799,10 +799,12 @@ html[data-keyboard-navigation]
   border-end-start-radius: inherit;
   border-end-end-radius: inherit;
 }
-.settingsDetails > div:has(.settingsDetailAction:hover) {
+.settingsDetails
+  > div:has(.settingsDetailAction:not(.settingsLabelAction):hover) {
   background: var(--affordance-panel-hover);
 }
-.settingsDetails > div:has(.settingsDetailAction:active) {
+.settingsDetails
+  > div:has(.settingsDetailAction:not(.settingsLabelAction):active) {
   background: var(--affordance-subtle-pressed);
 }
 .settingsDetailAction {
@@ -859,11 +861,15 @@ html[data-keyboard-navigation]
 .settingsDetailAction:focus-visible {
   outline: none;
 }
-.settingsDetailAction::after {
+.settingsDetailAction:not(.settingsLabelAction)::after {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
+}
+/* The value holds its own links, so only the label opens the editor. */
+.settingsLabelAction {
+  width: fit-content;
 }
 .settingsDetails > div + div {
   border-top: 1px solid var(--border-standard);
@@ -1089,6 +1095,10 @@ html[data-keyboard-navigation]
 .settingsDescription {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* The dd already spaces the value from its label. */
+.settingsDescription > :first-child {
+  margin-top: 0;
 }
 .detailsEditor {
   display: grid;

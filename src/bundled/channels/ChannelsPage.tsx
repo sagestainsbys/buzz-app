@@ -1783,6 +1783,9 @@ function ChannelWorkspace({
       }
       channel={current}
       details={queries.channelDetails}
+      session={queries}
+      canOpenLink={canOpenLink}
+      onOpenLink={openLink}
       close={closeSettings}
     >
       <UnreadOptions session={queries} channelId={current?.id} />
