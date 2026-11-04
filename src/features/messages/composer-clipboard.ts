@@ -271,10 +271,12 @@ export function pastedFiles(data: DataTransfer | null) {
     .filter((file): file is File => file !== null);
   if (!files.length) return files;
   const names = new Set(files.map((file) => file.name));
+  // RTF and RTFD attachments leave U+FFFC OBJECT REPLACEMENT CHARACTER
+  // beside a copied picture, which the editor drops as it pastes.
   const lines = (data?.getData("text/plain") ?? "")
     .split(/\r\n?|\n/)
     .map((line) => line.trim())
-    .filter((line) => line && !names.has(line));
+    .filter((line) => !/^[\s\uFFFC]*$/.test(line) && !names.has(line));
   if (!lines.length) return files;
   // A browser's Copy Image adds the URL beside at most an <img> as HTML; an
   // Excel cell or Word paragraph holding only a link has the link as HTML text.
@@ -310,11 +312,21 @@ export function pastedInlineImages(data: DataTransfer | null) {
   return [...images].map(([src, name]) => ({ src, name }));
 }
 
-/** A picture's extension from its type's subtype: image/svg+xml is svg and
- * image/x-icon is icon. */
+const pastedImageExtensions = new Map([
+  ["jpeg", "jpg"],
+  ["x-icon", "ico"],
+  ["vnd.microsoft.icon", "ico"],
+]);
+
+/** A picture's extension from its type: a known one, or a plain subtype, as
+ * image/svg+xml is svg; png otherwise, as for image/vnd.adobe.photoshop. */
 function pastedImageExtension(type: string) {
-  const subtype = /^image\/(?:x-)?([a-z\d]*)/.exec(type)?.[1];
-  return subtype === "jpeg" ? "jpg" : subtype || "png";
+  const subtype = type.replace(/^image\//, "");
+  return (
+    pastedImageExtensions.get(subtype) ??
+    /^(?:x-)?([a-z\d]+)(?:\+xml)?$/.exec(subtype)?.[1] ??
+    "png"
+  );
 }
 
 /** The pictures `pastedInlineImages` found, as files in paste order. One that

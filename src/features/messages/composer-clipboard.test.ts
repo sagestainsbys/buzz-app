@@ -247,6 +247,14 @@ it.each<
     ["image.png"],
     "See https://example.com/",
   ],
+  ["a picture with its placeholder", ["image.png"], ["image.png"], "\uFFFC"],
+  [
+    "a picture with placeholder lines",
+    ["image.png"],
+    ["image.png"],
+    "\uFFFC\n\uFFFC\n",
+  ],
+  ["text, a placeholder and a picture", [], ["image.png"], "Lunch\n\uFFFC"],
   ["text alone", [], [], "notes"],
 ])("%s attaches %j", (_shape, expected, names, text, html) => {
   expect(
@@ -361,6 +369,8 @@ it("reads pasted pictures in order, names unnamed ones and leaves out unreadable
     "blob:png": new Blob(["d"], { type: "image/png" }),
     "blob:icon": new Blob(["e"], { type: "image/x-icon" }),
     "blob:svg": new Blob(["f"], { type: "image/svg+xml" }),
+    "blob:ms-icon": new Blob(["g"], { type: "image/vnd.microsoft.icon" }),
+    "blob:psd": new Blob(["h"], { type: "image/vnd.adobe.photoshop" }),
   };
   const fetch = vi.fn(async (src: string) => {
     const blob = blobs[src];
@@ -377,15 +387,19 @@ it("reads pasted pictures in order, names unnamed ones and leaves out unreadable
       { src: "blob:png" },
       { src: "blob:icon" },
       { src: "blob:svg" },
+      { src: "blob:ms-icon" },
+      { src: "blob:psd" },
     ]);
     expect(files.map((file) => [file.name, file.type, file.size])).toEqual([
       ["Attachment.png", "image/png", 1],
       ["Pasted image.jpg", "image/jpeg", 2],
       ["Pasted image 2.png", "image/png", 1],
-      ["Pasted image 3.icon", "image/x-icon", 1],
+      ["Pasted image 3.ico", "image/x-icon", 1],
       ["Pasted image 4.svg", "image/svg+xml", 1],
+      ["Pasted image 5.ico", "image/vnd.microsoft.icon", 1],
+      ["Pasted image 6.png", "image/vnd.adobe.photoshop", 1],
     ]);
-    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(fetch).toHaveBeenCalledTimes(9);
   } finally {
     vi.unstubAllGlobals();
   }
