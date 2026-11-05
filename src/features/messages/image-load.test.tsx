@@ -10,24 +10,30 @@ import {
 } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { AttachmentImage } from "./AttachmentImage";
+import * as imageCopy from "./image-copy";
 import { ImageReviewStage } from "./ImageReviewStage";
 
 const url = "https://fixture.test/photo.png";
 const source = `/api/relay/media?url=${encodeURIComponent(url)}`;
 const dimensions = { width: 1200, height: 500 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 // The row and the viewer resolve the same media source for one attachment.
-function Views({ viewer = true }: { viewer?: boolean }) {
+function Views({ row = true, viewer = true }) {
   return (
     <>
-      <section aria-label="Row">
-        <AttachmentImage
-          attachment={{ url, kind: "image", dimensions }}
-          source={source}
-        />
-      </section>
+      {row && (
+        <section aria-label="Row">
+          <AttachmentImage
+            attachment={{ url, kind: "image", dimensions }}
+            source={source}
+          />
+        </section>
+      )}
       {viewer && (
         <section aria-label="Viewer">
           <ImageReviewStage
@@ -108,6 +114,25 @@ it("a row that already shows the pixels keeps them when the viewer fails", async
   expect(row().queryByRole("status")).not.toBeInTheDocument();
 });
 
+it("a viewer that already shows the pixels keeps them when a row fails", () => {
+  vi.spyOn(imageCopy, "supportsImageCopy").mockReturnValue(true);
+  const view = render(<Views row={false} />);
+  const pixels = viewerImage();
+  fireEvent.load(pixels);
+
+  view.rerender(<Views />);
+  fireEvent.error(rowImage());
+  expect(row().getByRole("status")).toHaveTextContent("Couldn't load image");
+  expect(viewerImage()).toBe(pixels);
+  expect(pixels).toHaveAttribute("src", source);
+  expect(viewer().queryByRole("status")).not.toBeInTheDocument();
+  expect(viewer().getByRole("button", { name: "Zoom in" })).toBeEnabled();
+  expect(viewer().getByRole("button", { name: "Copy image" })).toBeEnabled();
+  expect(
+    viewer().getByRole("link", { name: "Download image" }),
+  ).toHaveAttribute("href", source);
+});
+
 it("forgets a failure once no view shows it, so a remounted row requests it again", () => {
   const first = render(<Views viewer={false} />);
   fireEvent.error(rowImage());
@@ -119,7 +144,7 @@ it("forgets a failure once no view shows it, so a remounted row requests it agai
 });
 
 it("a recovery from the viewer moves focus to the row image only from a Retry that still has it", () => {
-  render(<Views />);
+  const view = render(<Views />);
   const failRow = () => {
     fireEvent.error(rowImage());
     const retry = row().getByRole("button", { name: "Retry image" });
@@ -136,9 +161,12 @@ it("a recovery from the viewer moves focus to the row image only from a Retry th
   recoverInViewer();
   expect(row().getByRole("link")).toHaveFocus();
 
-  // Lost focus belongs to the viewer whose Retry recovered the image.
+  // Lost focus belongs to the viewer whose Retry recovered the image. A viewer
+  // that loaded keeps its pixels, so one is opened again over the failed row.
+  view.rerender(<Views viewer={false} />);
   const retry = failRow();
   act(() => retry.blur());
+  view.rerender(<Views />);
   recoverInViewer();
   expect(row().getByRole("link")).not.toHaveFocus();
   expect(viewerImage().parentElement).toHaveFocus();
