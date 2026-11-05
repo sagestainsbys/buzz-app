@@ -118,6 +118,178 @@ test("Solo first-send choices stay selected until explicit reset", async ({
   await expect(trigger).toBeFocused();
 });
 
+test("Solo shows removed model and effort fallbacks until Reset", async ({
+  page,
+}, testInfo) => {
+  const readSavedPick = async () => {
+    const revision = await page.evaluate(async () => {
+      const { readSoloModelPicks } = await import(
+        "/src/features/messages/solo-model-picks.ts"
+      );
+      return (
+        await readSoloModelPicks(
+          "composer-models-fixture",
+          "solo:model-picks:fixture",
+        )
+      ).revision;
+    });
+    return revision ? (Object.values(JSON.parse(revision))[0] ?? null) : null;
+  };
+
+  await page.goto("/tests/fixtures/composer-models.html?solo&persist");
+  const trigger = page.getByRole("button", {
+    name: "Model and effort for this chat",
+  });
+  await trigger.click();
+  await page
+    .getByRole("button", { name: "Model for Honey in this chat" })
+    .click();
+  await page.getByRole("menuitemradio", { name: "Alternate model" }).click();
+  const effort = page.getByRole("slider", {
+    name: "Effort for Honey in this chat",
+  });
+  await effort.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(effort).toHaveAttribute("aria-valuetext", "High");
+  await page.keyboard.press("Escape");
+  await expect.poll(readSavedPick).toMatchObject({
+    model: "alternate",
+    effort: "high",
+  });
+  await trigger.click();
+  const supported = page.getByRole("dialog");
+  await expect(
+    supported.getByRole("button", { name: "Model for Honey in this chat" }),
+  ).toContainText("Alternate model");
+  await expect(
+    supported.getByRole("slider", {
+      name: "Effort for Honey in this chat",
+    }),
+  ).toHaveAttribute("aria-valuetext", "High");
+  await supported.screenshot({
+    path: testInfo.outputPath("supported-choice-before-catalog-change.png"),
+  });
+  await page.keyboard.press("Escape");
+
+  await page.goto(
+    "/tests/fixtures/composer-models.html?solo&persist&removed-model",
+  );
+  await expect(trigger).toBeVisible();
+  await expect(trigger).toHaveAttribute("data-selected", "");
+  await expect(trigger).toHaveAccessibleDescription(
+    /Saved model is unavailable\. Using Fixture model with its default effort \(Medium\)/,
+  );
+  await trigger.click();
+  const popup = page.getByRole("dialog");
+  await expect(popup.getByRole("status")).toHaveText(
+    "Saved model is unavailable. Using Fixture model with its default effort (Medium). Your saved choice is retained until you reset it.",
+  );
+  await expect(
+    popup.getByRole("slider", { name: "Effort for Honey in this chat" }),
+  ).toHaveAttribute("aria-valuetext", "Medium");
+  await expect.poll(readSavedPick).toMatchObject({
+    model: "alternate",
+    effort: "high",
+  });
+  await popup.screenshot({
+    path: testInfo.outputPath("unavailable-model-after-catalog-change.png"),
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("html").evaluate((root) => {
+    root.dataset.colorMode = "dark";
+    root.style.setProperty("--buzz-text-scale", "2");
+  });
+  await expect(page.locator("html")).toHaveAttribute("data-color-mode", "dark");
+  await expect(popup.getByRole("status")).toBeVisible();
+  const narrowPopup = await popup.boundingBox();
+  expect(narrowPopup).not.toBeNull();
+  expect(narrowPopup.x).toBeGreaterThanOrEqual(0);
+  expect(narrowPopup.x + narrowPopup.width).toBeLessThanOrEqual(390);
+  await popup.screenshot({
+    path: testInfo.outputPath("unavailable-model-dark-narrow.png"),
+  });
+
+  await page.goto("/tests/fixtures/composer-models.html?solo&persist");
+  await trigger.click();
+  const recovered = page.getByRole("dialog");
+  await expect(
+    recovered.getByRole("button", { name: "Model for Honey in this chat" }),
+  ).toContainText("Alternate model");
+  await expect(
+    recovered.getByRole("slider", {
+      name: "Effort for Honey in this chat",
+    }),
+  ).toHaveAttribute("aria-valuetext", "High");
+  await expect(recovered.getByText(/Saved model is unavailable/)).toHaveCount(
+    0,
+  );
+  await page.keyboard.press("Escape");
+
+  await page.goto(
+    "/tests/fixtures/composer-models.html?solo&persist&removed-model",
+  );
+  await trigger.click();
+  const resetModel = page.getByRole("dialog");
+  await resetModel
+    .getByRole("button", { name: "Reset model and effort" })
+    .click();
+  await expect.poll(readSavedPick).toBeNull();
+  await expect(trigger).not.toHaveAttribute("data-selected");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.goto("/tests/fixtures/composer-models.html?solo&persist");
+  await trigger.click();
+  const modelControl = page.getByRole("button", {
+    name: "Model for Honey in this chat",
+  });
+  await modelControl.click();
+  await page.getByRole("menuitemradio", { name: "Alternate model" }).click();
+  await modelControl.click();
+  await page.getByRole("menuitemradio", { name: "Fixture model" }).click();
+  const reselectedEffort = page.getByRole("slider", {
+    name: "Effort for Honey in this chat",
+  });
+  await reselectedEffort.focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(reselectedEffort).toHaveAttribute("aria-valuetext", "High");
+  await page.keyboard.press("Escape");
+  await expect.poll(readSavedPick).toMatchObject({
+    model: "fixture",
+    effort: "high",
+  });
+  await page.goto(
+    "/tests/fixtures/composer-models.html?solo&persist&removed-effort",
+  );
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await trigger.click();
+  const resetEffort = page.getByRole("dialog");
+  await expect(resetEffort.getByRole("status")).toHaveText(
+    "Saved effort is unavailable for Fixture model. Using Fixture model with its default effort (Medium). Your saved choice is retained until you reset it.",
+  );
+  await expect(
+    resetEffort.getByRole("slider", {
+      name: "Effort for Honey in this chat",
+    }),
+  ).toHaveAttribute("aria-valuetext", "Medium");
+  await expect.poll(readSavedPick).toMatchObject({
+    model: "fixture",
+    effort: "high",
+  });
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-color-mode",
+    "light",
+  );
+  await expect(resetEffort.getByRole("status")).toBeVisible();
+  await resetEffort.screenshot({
+    path: testInfo.outputPath("unavailable-effort-after-catalog-change.png"),
+  });
+  await resetEffort
+    .getByRole("button", { name: "Reset model and effort" })
+    .click();
+  await expect.poll(readSavedPick).toBeNull();
+  await expect(trigger).not.toHaveAttribute("data-selected");
+});
+
 // Browser-only: inherited animated progress, real track geometry and label clamping.
 // A DOM emulator cannot catch the fill jumping ahead or the label moving backwards.
 test("entrance keeps the fill and delayed model button attached to the handle", async ({

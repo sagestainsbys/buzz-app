@@ -136,7 +136,9 @@ that agent in Buzz; they do not notify the external app through this connection.
   level rather than requiring a new thread for each reply. Where available, use
   **Model and effort** in the composer before sending; Solo keeps those choices
   for that chat until you reset them in the same control, even if its available
-  models change. Wait for saved choices to load before sending; an unreadable
+  models change. If a loaded catalog no longer offers a saved choice, the
+  control shows the supported fallback without clearing the saved selection.
+  Wait for saved choices to load before sending; an unreadable
   store never silently falls back to defaults. If choices cannot be read, use
   **Retry saved choices** before sending. If their agent catalog cannot be loaded, retry
   or reset them in the model control. If New chat cannot clear

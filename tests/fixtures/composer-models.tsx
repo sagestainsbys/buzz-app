@@ -22,6 +22,9 @@ createAppearance();
 const pubkey = "a".repeat(64);
 const peer = "b".repeat(64);
 const persistence = new URLSearchParams(window.location.search).has("persist");
+const query = new URLSearchParams(window.location.search);
+const removedModel = query.has("removed-model");
+const removedEffort = query.has("removed-effort");
 const scope = "composer-models-fixture";
 const key = soloModelPicksKey("fixture");
 const snapshot = {
@@ -42,30 +45,39 @@ const types = [
         failCatalog = false;
         throw new Error("Fixture catalog is temporarily unavailable");
       }
+      const catalog = [
+        {
+          id: "fixture",
+          label: "Fixture model",
+          effort: "medium",
+          efforts: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+          ],
+        },
+        {
+          id: "alternate",
+          label: "Alternate model",
+          effort: "medium",
+          efforts: [
+            { id: "low", label: "Low" },
+            { id: "medium", label: "Medium" },
+            { id: "high", label: "High" },
+          ],
+        },
+      ];
+      const models = removedModel
+        ? catalog.filter((model) => model.id !== "alternate")
+        : removedEffort
+          ? catalog.map((model) => ({
+              ...model,
+              efforts: model.efforts.filter((effort) => effort.id !== "high"),
+            }))
+          : catalog;
       return {
         current: "fixture",
-        models: [
-          {
-            id: "fixture",
-            label: "Fixture model",
-            effort: "medium",
-            efforts: [
-              { id: "low", label: "Low" },
-              { id: "medium", label: "Medium" },
-              { id: "high", label: "High" },
-            ],
-          },
-          {
-            id: "alternate",
-            label: "Alternate model",
-            effort: "medium",
-            efforts: [
-              { id: "low", label: "Low" },
-              { id: "medium", label: "Medium" },
-              { id: "high", label: "High" },
-            ],
-          },
-        ],
+        models,
       };
     },
   },

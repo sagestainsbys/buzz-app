@@ -5377,10 +5377,15 @@ it("retries an unreadable initial Solo preference without silently sending defau
   });
 });
 
-it("uses the supported Solo model and effort when saved choices are unavailable", async () => {
+it("discloses supported fallbacks for unavailable saved Solo choices", async () => {
   const { mountChat, modelButton, send } = soloModelPreferenceHarness();
+  const removedModelPick = {
+    model: "removed",
+    effort: "high",
+    type: "test/agent",
+  };
   writeView("scope", "solo:model-picks:channel", {
-    [first.pubkey]: { model: "removed", effort: "high", type: "test/agent" },
+    [first.pubkey]: removedModelPick,
   });
   const unsupported = mountChat();
   await unsupported.user.type(unsupported.input(), "a");
@@ -5388,8 +5393,19 @@ it("uses the supported Solo model and effort when saved choices are unavailable"
     screen.getByRole("button", { name: "First Honey" }),
   );
   const trigger = await screen.findByRole("button", { name: /Model.*effort/ });
-  expect(trigger).not.toHaveAttribute("data-selected");
+  expect(trigger).toHaveAttribute("data-selected", "");
+  expect(trigger).toHaveAccessibleDescription(
+    /Saved model is unavailable\. Using Fast with no listed default effort\./,
+  );
+  expect(readView("scope", "solo:model-picks:channel", null)).toEqual({
+    [first.pubkey]: removedModelPick,
+  });
   await unsupported.user.click(trigger);
+  expect(
+    screen.getByText(
+      /Saved model is unavailable\. Using Fast with no listed default effort\./,
+    ),
+  ).toHaveAttribute("role", "status");
   expect(modelButton()).toHaveTextContent("Fast");
   expect(
     await screen.findByLabelText("Effort for Honey in this chat"),
@@ -5402,17 +5418,45 @@ it("uses the supported Solo model and effort when saved choices are unavailable"
     [first.pubkey],
     [],
   );
+  expect(readView("scope", "solo:model-picks:channel", null)).toEqual({
+    [first.pubkey]: removedModelPick,
+  });
 
   unsupported.unmount();
+  const removedEffortPick = {
+    model: "deep",
+    effort: "ultra",
+    type: "test/agent",
+  };
   writeView("scope", "solo:model-picks:channel", {
-    [first.pubkey]: { model: "deep", effort: "ultra", type: "test/agent" },
+    [first.pubkey]: removedEffortPick,
   });
   const unsupportedEffort = mountChat();
   await unsupportedEffort.user.type(unsupportedEffort.input(), "b");
   await unsupportedEffort.user.click(
     screen.getByRole("button", { name: "First Honey" }),
   );
-  await screen.findByRole("button", { name: /Model.*effort/ });
+  const effortTrigger = await screen.findByRole("button", {
+    name: /Model.*effort/,
+  });
+  await waitFor(() =>
+    expect(effortTrigger).toHaveAccessibleDescription(
+      /Saved effort is unavailable for Deep\. Using Deep with no listed default effort\./,
+    ),
+  );
+  await unsupportedEffort.user.click(effortTrigger);
+  expect(
+    screen.getByText(
+      /Saved effort is unavailable for Deep\. Using Deep with no listed default effort\./,
+    ),
+  ).toHaveAttribute("role", "status");
+  expect(
+    await screen.findByLabelText("Effort for Honey in this chat"),
+  ).toHaveAttribute("aria-valuetext", "Default");
+  expect(readView("scope", "solo:model-picks:channel", null)).toEqual({
+    [first.pubkey]: removedEffortPick,
+  });
+  await unsupportedEffort.user.keyboard("{Escape}");
   await send(unsupportedEffort);
   await waitFor(() =>
     expect(unsupportedEffort.messages.send).toHaveBeenCalledOnce(),
@@ -5424,7 +5468,44 @@ it("uses the supported Solo model and effort when saved choices are unavailable"
   expect(unsupportedEffort.messages.send.mock.calls[0]?.at(-1)).toEqual({
     [first.pubkey]: { model: "deep" },
   });
+  expect(readView("scope", "solo:model-picks:channel", null)).toEqual({
+    [first.pubkey]: removedEffortPick,
+  });
   unsupportedEffort.unmount();
+});
+
+it("shows an unavailable Solo pick when the catalog has no selectable controls", async () => {
+  const { mountChat } = soloModelPreferenceHarness(
+    sessionAgents("channel", [{ id: "fast", label: "Fast", efforts: [] }]),
+  );
+  const removedPick = {
+    model: "removed",
+    effort: "high",
+    type: "test/agent",
+  };
+  writeView("scope", "solo:model-picks:channel", {
+    [first.pubkey]: removedPick,
+  });
+
+  const composer = mountChat();
+  await composer.user.type(composer.input(), "a");
+  await composer.user.click(
+    screen.getByRole("button", { name: "First Honey" }),
+  );
+
+  const trigger = await screen.findByRole("button", { name: /Model.*effort/ });
+  expect(trigger).toHaveAccessibleDescription(
+    /Saved model is unavailable\. Using Fast\./,
+  );
+  await composer.user.click(trigger);
+  expect(
+    screen.getByText(/Saved model is unavailable\. Using Fast\./),
+  ).toHaveAttribute("role", "status");
+  expect(screen.getByText(/Fast · No thinking options/)).toBeVisible();
+  expect(readView("scope", "solo:model-picks:channel", null)).toEqual({
+    [first.pubkey]: removedPick,
+  });
+  composer.unmount();
 });
 
 it.each(

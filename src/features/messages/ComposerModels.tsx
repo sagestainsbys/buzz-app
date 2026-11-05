@@ -98,15 +98,21 @@ export function ComposerModels({
         const { session, ...catalog } = choice;
         const visible: MentionModelChoice =
           startsThread && session === "thread" ? catalog : choice;
+        const unavailablePick =
+          resettable &&
+          !visible.loading &&
+          !visible.failed &&
+          unavailableSavedPick(visible, value[visible.pubkey] ?? {});
         return visible.loading ||
           visible.failed ||
           visible.models.length > 1 ||
           visible.models.some((model) => model.efforts.length) ||
-          visible.session
+          visible.session ||
+          unavailablePick
           ? [visible]
           : [];
       }),
-    [mentioned, startsThread],
+    [mentioned, startsThread, resettable, value],
   );
   const profileKey = pubkeys.join(":");
   const selection = useMemo(
@@ -243,17 +249,30 @@ export function ComposerModels({
     const { model, effort } = value[choice.pubkey] ?? {};
     const runs = runModel(choice, model);
     const selected = choice.models.some((item) => item.id === model);
+    const unavailable =
+      resettable && !choice.failed
+        ? unavailableSavedPick(choice, value[choice.pubkey] ?? {})
+        : undefined;
     const savedEffortApplies = !resettable || !model || selected;
     const supportedEffort = savedEffortApplies
       ? runs.efforts.find((item) => item.id === effort)
       : undefined;
-    const text = [
-      selected && runs.label,
-      effort !== undefined && supportedEffort?.label,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+    const text =
+      unavailable ??
+      [selected && runs.label, effort !== undefined && supportedEffort?.label]
+        .filter(Boolean)
+        .join(" · ");
     return text ? [choices.length > 1 ? `${choice.name}: ${text}` : text] : [];
+  });
+  const unavailableDescription = choices.flatMap((choice) => {
+    if (choice.loading || choice.failed || !resettable) return [];
+    const unavailable = unavailableSavedPick(
+      choice,
+      value[choice.pubkey] ?? {},
+    );
+    return unavailable
+      ? [choices.length > 1 ? `${choice.name}: ${unavailable}` : unavailable]
+      : [];
   });
   const pick = (pubkey: string, next: RunPick) => {
     const { [pubkey]: _, ...rest } = value;
@@ -282,6 +301,11 @@ export function ComposerModels({
             disabled={disabled}
             data-selected={picked.length ? "" : undefined}
             aria-label={label}
+            aria-description={
+              unavailableDescription.length
+                ? unavailableDescription.join(" ")
+                : undefined
+            }
             title={
               picked.length
                 ? `${label}. ${target}: ${picked.join(", ")}`
@@ -382,6 +406,34 @@ const runModel = (choice: MentionModelChoice, picked: string | undefined) =>
   choice.models.find((item) => item.id === choice.current) ??
   choice.models[0] ?? { id: "", label: "", efforts: [] };
 
+function unavailableSavedPick(choice: MentionModelChoice, value: RunPick) {
+  const selectedModel = choice.models.some((item) => item.id === value.model);
+  const runs = runModel(choice, value.model);
+  const unavailableModel = Boolean(value.model && !selectedModel);
+  const unavailableEffort = Boolean(
+    value.effort &&
+      (!value.model || selectedModel) &&
+      !runs.efforts.some((item) => item.id === value.effort),
+  );
+  if (!unavailableModel && !unavailableEffort) return undefined;
+  const defaultEffort = runs.efforts.find((item) => item.id === runs.effort);
+  const fallback = runs.id
+    ? `Using ${runs.label}${
+        defaultEffort
+          ? ` with its default effort (${defaultEffort.label})`
+          : runs.efforts.length
+            ? " with no listed default effort"
+            : ""
+      }`
+    : "No supported model is listed in the loaded catalog";
+  const reason = unavailableModel
+    ? "Saved model is unavailable."
+    : runs.id
+      ? `Saved effort is unavailable for ${runs.label}.`
+      : "Saved effort is unavailable.";
+  return `${reason} ${fallback}. Your saved choice is retained until you reset it.`;
+}
+
 function AgentChoice({
   choice,
   avatarSrc,
@@ -438,6 +490,10 @@ function AgentChoice({
   const selectedEffort =
     !chatScoped || !value.model || selectedModel !== undefined
       ? runs.efforts.find((item) => item.id === value.effort)?.id
+      : undefined;
+  const unavailable =
+    chatScoped && !choice.failed
+      ? unavailableSavedPick(choice, value)
       : undefined;
   const several = choice.models.length > 1;
   // Chat choices stay explicit even when they match the provider default.
@@ -509,6 +565,13 @@ function AgentChoice({
         }
       />
       <div className={styles.controls}>
+        {unavailable && (
+          <div className={styles.status}>
+            <span className={styles.statusCopy} role="status">
+              {unavailable}
+            </span>
+          </div>
+        )}
         {choice.failed ? (
           <div className={styles.status}>
             <span className={styles.statusCopy} role="alert">
