@@ -1682,7 +1682,8 @@ motion drops the slide and the fade. Opening the viewer from a chat photo grows
 the loaded original alone; a preview still needed afterwards fades in. A failed
 original keeps its preview. Copy and click-to-zoom act only on the decoded
 original. Opening the media review fetches every relay thumbnail at low
-priority. Each viewer decodes the next two originals in the direction of travel
+priority, except under Save-Data, when only the visible photo loads its own
+preview. Each viewer decodes the next two originals in the direction of travel
 and the previous one at low priority, at most two at a time, skipping originals
 over 24 megapixels or 25 MB and Save-Data. Requests that leave that window are
 cancelled by clearing their source, including a photo navigated away from before
