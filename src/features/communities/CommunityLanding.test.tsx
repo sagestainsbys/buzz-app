@@ -99,21 +99,25 @@ it("opens the join steps from a community address", async () => {
   );
 });
 
-it("reads a bare host as a secure community address", async () => {
-  const user = userEvent.setup();
-  landing();
-  await user.type(
-    screen.getByLabelText("Invite link or community URL"),
-    "relay.example",
-  );
-  await user.click(screen.getByRole("button", { name: "Join" }));
-  const dialog = await screen.findByRole("main");
-  expect(await within(dialog).findByLabelText("Invite code")).toHaveValue("");
-  expect(communityRequest).toHaveBeenLastCalledWith(
-    "https://relay.example",
-    "info",
-  );
-});
+// A short v2 host is an address; only a code-length label is a bare code.
+it.each(["relay.example", "v2.dev"])(
+  "reads bare host %j as a secure community address",
+  async (host) => {
+    const user = userEvent.setup();
+    landing();
+    await user.type(
+      screen.getByLabelText("Invite link or community URL"),
+      host,
+    );
+    await user.click(screen.getByRole("button", { name: "Join" }));
+    const dialog = await screen.findByRole("main");
+    expect(await within(dialog).findByLabelText("Invite code")).toHaveValue("");
+    expect(communityRequest).toHaveBeenLastCalledWith(
+      `https://${host}`,
+      "info",
+    );
+  },
+);
 
 it("asks for an invite link or community URL when the pasted value is neither", async () => {
   const user = userEvent.setup();

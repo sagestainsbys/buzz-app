@@ -421,7 +421,6 @@ const bareCode = "Paste the whole invite link, not only its code.";
 it.each([
   ["", unreadable],
   ["not a relay", unreadable],
-  ["v2.invite", bareCode],
   ["v2.acTJgVMn-cEaz84r5g7Az40Vz_JB5nAURtFFSq1oUIo", bareCode],
   // A sentence-ending dot copied with the code still normalizes to it.
   ["v2.acTJgVMn-cEaz84r5g7Az40Vz_JB5nAURtFFSq1oUIo.", bareCode],
@@ -462,11 +461,18 @@ it.each([
 );
 
 it.each([
-  ["an invite link", "https://Relay.Example/invite/v2.abc", "v2.abc"],
-  ["a bare host", "relay.example", undefined],
+  [
+    "an invite link",
+    "https://Relay.Example/invite/v2.abc",
+    "https://relay.example",
+    "v2.abc",
+  ],
+  ["a bare host", "relay.example", "https://relay.example", undefined],
+  // Only a code-length label after `v2.` is refused as a bare invite code.
+  ["a short v2 host", "v2.dev", "https://v2.dev", undefined],
 ])(
   "looks up the community for %s and prefills only an invite link's code",
-  async (_, value, code) => {
+  async (_, value, origin, code) => {
     const user = userEvent.setup();
     const requests = vi.fn(async (url: string) => {
       const route = String(url).split("/").at(-1);
@@ -494,9 +500,9 @@ it.each([
     await user.paste(value);
     await user.click(screen.getByRole("button", { name: "Continue" }));
     // The access step names the canonical origin the lookup went to.
-    expect(await screen.findByText("https://relay.example")).toBeVisible();
+    expect(await screen.findByText(origin)).toBeVisible();
     expect(requests).toHaveBeenCalledWith(
-      `/api/relay/${encodeURIComponent("https://relay.example")}/info`,
+      `/api/relay/${encodeURIComponent(origin)}/info`,
       expect.anything(),
     );
     if (code) expect(screen.getByLabelText("Invite code")).toHaveValue(code);

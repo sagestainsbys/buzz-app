@@ -80,15 +80,16 @@ export function parsePastedInvite(input: string): InviteLink | null {
   }
 }
 
-/** The relay reads a `v2.` value as an invite code (buzz-core `V2_PREFIX`).
- * A scheme-less value whose normalized hostname is `v2.` and one base64url
- * label is a code pasted without its link, whatever its case, final dot, port
- * or root slash; `v2.relay.example` and `wss://v2.invite` stay addresses. */
+/** The relay mints a code as `v2.` (buzz-core `V2_PREFIX`) and 32 random
+ * bytes as unpadded base64url: 43 characters. A scheme-less value whose
+ * normalized hostname has that shape is a code pasted without its link,
+ * whatever its case, final dot, port or root slash; `v2.dev`,
+ * `v2.relay.example` and `wss://v2.<code>` stay addresses. */
 function isBareInviteCode(value: string) {
   try {
     return (
       !value.includes("://") &&
-      /^v2\.[\w-]+$/.test(new URL(enteredRelayOrigin(value)).hostname)
+      /^v2\.[\w-]{43}$/.test(new URL(enteredRelayOrigin(value)).hostname)
     );
   } catch {
     return false;
